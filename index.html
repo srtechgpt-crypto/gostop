@@ -2176,7 +2176,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     let applying = false;
     let checking = false;
     let reloading = false;
-    let pendingReload = false; // 새 버전이 적용됐는데 게임 중이라 새로고침을 미룬 상태
+    let pendingReload = false; // 페이지를 맡은 버전이 바뀌어 새로고침이 필요할 수 있는 상태(확인될 때까지 유지)
+    let pageVersion = null;    // 지금 보고 있는 화면이 어느 버전인지 (처음 맡은 서비스 워커의 버전)
     // 새 버전을 적용(새로고침)해도 되는 때 = 시작 화면 (게임·결과창 중에는 기다림)
     const safe = () => !!(window.GS && GS.ui && GS.ui.canUpdate === true);
 
@@ -2254,16 +2255,23 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       finally { await status(); await applyWaiting(); }
     }
 
-    // 새 버전으로 한 번 새로고침. 지금이 안전한 때가 아니면 미뤄 두고 시작 화면에서 다시 시도
-    async function reloadOnce(worker) {
-      const data = await message(worker, "status");
-      if (!(data.ready && safe() && worker === navigator.serviceWorker.controller)) { pendingReload = true; return false; }
-      const key = "gostop-reloaded-" + data.version;
-      let seen = false;
-      // 저장이 막힌 폰이어도 한 번은 새로고침 (새로 열린 페이지는 이미 새 버전이라 다시 반복되지 않음)
-      try { seen = !!sessionStorage.getItem(key); sessionStorage.setItem(key, "1"); } catch (_) { seen = false; }
-      pendingReload = false;
-      if (seen) return false;
+    // 이 화면의 버전을 알아 둠 (화면을 내준 서비스 워커 = 이 화면의 버전)
+    async function learnPageVersion() {
+      const worker = navigator.serviceWorker.controller;
+      if (pageVersion || !worker) return;
+      try { pageVersion = (await message(worker, "status")).version; } catch (_) { /* 다음에 다시 */ }
+    }
+
+    // 맡은 버전이 화면 버전과 다르면, 안전한 때(시작 화면)에 한 번 새로고침.
+    // 기록(sessionStorage)에 기대지 않고 "지금 화면의 버전"으로 판단 → 예전 버전으로 되돌려도, 확인이 한 번 실패해도 다시 시도됨
+    async function reloadIfNeeded() {
+      if (!pendingReload || reloading || !safe()) return false;
+      const worker = navigator.serviceWorker.controller;
+      if (!worker) return false;
+      const data = await message(worker, "status"); // 실패하면 pendingReload 그대로 → 다음에 다시
+      if (!data.ready || worker !== navigator.serviceWorker.controller) return false;
+      if (!pageVersion || data.version === pageVersion) { pageVersion = pageVersion || data.version; pendingReload = false; return false; }
+      if (!safe()) return false;
       reloading = true;
       location.reload();
       return true;
@@ -2272,19 +2280,16 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     async function controllerChanged() {
       const existed = hadController;
       hadController = !!navigator.serviceWorker.controller;
-      try {
-        const worker = navigator.serviceWorker.controller;
-        if (existed && worker && !reloading) {
-          if (!safe()) pendingReload = true;
-          else if (await reloadOnce(worker)) return;
-        }
-      } catch (_) {}
+      if (existed) pendingReload = true; // 맡은 버전이 바뀜 — 새로고침이 필요한지 확인될 때까지 유지
+      else await learnPageVersion();     // 처음 설치: 지금 화면이 곧 그 버전
+      try { if (await reloadIfNeeded()) return; } catch (_) {}
       await status();
       await applyWaiting();
     }
 
     async function start() {
       show(PREPARING);
+      await learnPageVersion();
       try {
         if (navigator.storage && navigator.storage.persist) {
           Promise.resolve(navigator.storage.persist()).catch(() => {});
@@ -2313,7 +2318,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
         setInterval(() => {
           status().catch(() => {});
           applyWaiting().catch(() => {});
-          if (pendingReload && !reloading && safe() && navigator.serviceWorker.controller) reloadOnce(navigator.serviceWorker.controller).catch(() => {});
+          learnPageVersion().catch(() => {});
+          reloadIfNeeded().catch(() => {});
         }, 1500);
         await status();
         await applyWaiting();
