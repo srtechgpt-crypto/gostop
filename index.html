@@ -48,8 +48,8 @@ button:disabled{opacity:.45}
 .warn{font-size:18px;color:var(--gold);text-align:center;font-weight:700}
 
 /* ---------- 게임 화면 ---------- */
-#game{position:fixed;left:0;top:0;width:100vw;height:100vh;display:grid;grid-template-columns:1fr minmax(150px,19%);background:var(--felt)}
-#game.rotated{width:100vh;height:100vw;transform-origin:top left;transform:rotate(90deg) translateY(-100%)}
+/* 크기·돌리기·배율·안전영역 여백은 ui.js layoutGame이 정함(가상 크기로 그린 뒤 줄임) */
+#game{position:fixed;left:0;top:0;width:100vw;height:100vh;display:grid;grid-template-columns:1fr minmax(150px,19%);grid-template-rows:minmax(0,1fr);background:var(--felt);transform-origin:top left;box-sizing:border-box}
 #board{display:grid;grid-template-rows:17fr 35fr 17fr 31fr;min-width:0;min-height:0;overflow:hidden;padding:4px 6px;gap:3px}
 .zone{position:relative;display:flex;align-items:center;gap:6px;min-width:0;min-height:0}
 .opps{justify-content:space-between;gap:12px}
@@ -67,8 +67,8 @@ button:disabled{opacity:.45}
 .pile{display:flex;position:relative}
 .pile img+img{margin-left:calc(var(--fw) * -0.62)}
 .pile .ppk{position:absolute;left:50%;top:-6px;transform:translateX(-50%);background:var(--red);color:#fff;font-weight:900;font-size:15px;border-radius:8px;padding:0 6px}
-#deck{position:relative;margin:0 10px 0 4px;flex:none}
-#deck .cnt{position:absolute;inset:auto 0 -2px 0;text-align:center;font-weight:900;font-size:18px;color:var(--gold);text-shadow:0 2px 2px #000}
+#deck{position:relative;margin:0 10px 0 4px;flex:none;align-self:flex-end}
+#deck .cnt{position:absolute;inset:auto 0 0 0;text-align:center;font-weight:900;font-size:18px;color:var(--gold);text-shadow:0 2px 2px #000}
 #hand{justify-content:center;gap:5px;align-items:flex-end;padding-bottom:4px}
 #mycapzone{justify-content:flex-start}
 
@@ -84,7 +84,7 @@ img.card{display:block;flex:none;border-radius:calc(var(--w) * .08);box-shadow:0
 #hand.locked img.card{filter:brightness(.8)}
 
 /* 오른쪽 점수판 */
-#side{background:var(--panel);display:flex;flex-direction:column;gap:5px;padding:6px;min-width:0;border-left:3px solid var(--felt-dark)}
+#side{background:var(--panel);display:flex;flex-direction:column;gap:5px;padding:6px;min-width:0;min-height:0;border-left:3px solid var(--felt-dark)}
 .sc{background:#0003;border-radius:10px;padding:4px 8px;border:3px solid transparent}
 .sc.turn{border-color:var(--gold)}
 .sc .who{font-size:16px;color:var(--ink-dim);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -92,6 +92,13 @@ img.card{display:block;flex:none;border-radius:calc(var(--w) * .08);box-shadow:0
 .sc .mn{font-size:15px;font-variant-numeric:tabular-nums}
 #side .grow{flex:1}
 #side button{background:var(--felt-line);color:var(--ink);font-size:18px;min-height:50px}
+/* 단추 4개는 2칸씩 두 줄 (오른쪽 칸이 폰 높이를 넘지 않게) */
+#btns{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+#btns button{font-size:16px;min-height:46px;padding:2px 4px;line-height:1.15;word-break:keep-all}
+/* 상대 점수칸은 한 줄로 짧게 */
+.sc.mini{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;padding:2px 8px}
+.sc.mini .pt{font-size:clamp(22px,6vmin,30px)}
+.sc.mini .mn{flex-basis:100%}
 #flipbtn{background:var(--gold)!important;color:var(--btn-ink)!important}
 
 /* 안내 줄 · 말풍선 */
@@ -104,9 +111,15 @@ img.card{display:block;flex:none;border-radius:calc(var(--w) * .08);box-shadow:0
 @keyframes pop{0%{transform:translate(-50%,-50%) scale(.9)}55%{transform:translate(-50%,-50%) scale(1.1)}100%{transform:translate(-50%,-50%) scale(1)}}
 #board.shake{animation:shake .14s linear}
 @keyframes shake{0%{transform:translateX(0)}25%{transform:translateX(-2px)}50%{transform:translateX(2px)}75%{transform:translateX(-1px)}100%{transform:translateX(0)}}
-#strip{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);background:#000c;border-radius:16px;padding:10px 16px;display:flex;gap:12px;align-items:center;z-index:30;pointer-events:none}
-#strip .t{font-weight:900;font-size:20px;text-align:center;max-width:9em}
-#strip img.card{--w:calc(var(--hw) * 1.15)}
+#board.thud{animation:thud .09s linear}
+@keyframes thud{0%{transform:translateY(0)}40%{transform:translateY(2px)}100%{transform:translateY(0)}}
+/* 날아가는 패: #game 안 레이어라 판과 같이 돌고 줄어든다 */
+#fly{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:20}
+#fly .fc{position:absolute;left:0;top:0;transform-origin:top left;will-change:transform;filter:drop-shadow(0 8px 8px #0009)}
+#fly .fc img.card{width:var(--w);height:calc(var(--w) * 1.6);box-shadow:none;transition:none}
+img.card.ghost{visibility:hidden}
+#start.fitz>*{zoom:var(--z,1)}
+#ov .dlg,#ov2 .dlg{zoom:var(--z,1)}
 
 /* 창 */
 .overlay.sys{z-index:60}
@@ -154,6 +167,7 @@ img.card{display:block;flex:none;border-radius:calc(var(--w) * .08);box-shadow:0
   <div class="row">
     <button class="plain" id="b-settings">설정 (소리·목소리·장단·9월)</button>
     <button class="plain" id="b-rules">규칙 보기</button>
+    <button class="plain" id="b-fit1">화면 맞추기</button>
     <button class="plain" id="b-refill" hidden>돈 다시 채우기</button>
   </div>
   <div id="startwarn" class="warn" hidden></div>
@@ -170,12 +184,15 @@ img.card{display:block;flex:none;border-radius:calc(var(--w) * .08);box-shadow:0
     <div id="scores"></div>
     <div class="grow"></div>
     <button id="flipbtn" hidden>패 안 내고<br>뒤집기</button>
-    <button id="b-speed">속도: 보통</button>
-    <button id="b-sound2">소리 켜짐</button>
-    <button id="b-home">그만하기</button>
+    <div id="btns">
+      <button id="b-speed">속도: 보통</button>
+      <button id="b-sound2">소리 켜짐</button>
+      <button id="b-fit2">화면 맞추기</button>
+      <button id="b-home">그만하기</button>
+    </div>
   </div>
+  <div id="fly"></div>
 </div>
-<div id="strip" hidden></div>
 <div id="shout"></div>
 <div id="ov" class="overlay" hidden></div>
 <div id="ov2" class="overlay sys" hidden></div>
@@ -1363,6 +1380,81 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
+// ===== src/fit.js =====
+// 화면 맞추기·패 날리기에 쓰는 계산 (화면을 직접 만지지 않는 순수 함수 — 테스트하기 쉽게)
+(function (root) {
+  const GS = (root.GS = root.GS || {});
+
+  // 게임판 배치: 화면(W×H)을 배율 s로 줄여 보이게 할 때, 판을 어떤 크기로 그리고 어떻게 돌릴지.
+  // 판은 s만큼 '넓게' 그린 뒤(lw×lh) scale(s)로 줄인다 → 글자·단추처럼 px로 정한 것도 같이 작아져 칸 안 잘림도 풀린다.
+  // 세로로 들면(H > W) 판을 90도 돌려 가로로 보여 준다.
+  function gameBox(W, H, s) {
+    const rot = H > W;
+    const sw = rot ? H : W, sh = rot ? W : H; // 판이 차지할 가로·세로(화면 px)
+    const lw = sw / s, lh = sh / s;          // 판 안쪽 크기(줄이기 전)
+    const transform = rot
+      ? `rotate(90deg) translate(0px, ${-sh}px) scale(${s})`
+      : `scale(${s})`;
+    return { rot, lw, lh, transform };
+  }
+
+  // 카드 크기(판 안쪽 px): 손패 hw, 바닥 fw, 먹은 패 sw.
+  // 판 너비는 오른쪽 칸(최소 150px, 19%)과 판 여백을 실제로 뺀 값, 손패 수는 실제 장수(최소 맞고 10·셋 7)
+  function cardSizes(lw, lh, mode, handCount) {
+    const side = Math.max(150, lw * 0.19) + 3;
+    const bw = lw - side - 12;
+    const n = Math.max(mode === 'matgo' ? 10 : 7, handCount || 0);
+    const hw = Math.max(20, Math.min((bw - 5 * (n + 1)) / n, (lh * 0.31 - 14) / 1.6 / 1.16));
+    const fw = Math.max(18, Math.min((lh * 0.35 - 10) / 1.6, bw / 15));
+    const sw = Math.max(12, Math.min((lh * 0.17 - 24) / 1.6, 34));
+    return { hw, fw, sw, bw };
+  }
+
+  // 넘친 곳이 있으면 배율을 한 단계 줄인다. 더 못 줄이면 null
+  const MIN_SCALE = 0.6, STEP = 0.05;
+  function nextScale(s, overflow) {
+    if (!overflow) return null;
+    const n = Math.round((s - STEP) * 100) / 100;
+    return n >= MIN_SCALE - 1e-9 ? n : null;
+  }
+
+  // 사각형 목록 중 넘친 것이 있는지 (요소 크기 비교: 스크롤 크기 > 보이는 크기, 또는 판 밖으로 나감)
+  // boxes: [{ sw, sh, cw, ch }] (scrollWidth/Height, clientWidth/Height), rects: [{ l, t, r, b }], area: { w, h }
+  function overflowed(boxes, rects, area) {
+    const tol = 2; // 그림자·반올림 같은 1~2px 차이는 넘친 것으로 안 봄
+    for (const b of boxes) if (b.sw > b.cw + tol || b.sh > b.ch + tol) return true;
+    for (const r of rects) if (r.l < -tol || r.t < -tol || r.r > area.w + tol || r.b > area.h + tol) return true;
+    return false;
+  }
+
+  // 패 날리기 시간(ms): 날아가기 · 내려찍기 · 놓인 뒤 잠깐
+  const FLY = {
+    normal: { fly: 320, drop: 110, hold: 200 },
+    fast:   { fly: 240, drop: 90,  hold: 130 },
+    faster: { fly: 170, drop: 70,  hold: 80 },
+  };
+  function flyTiming(speed, fast) {
+    if (fast) return { fly: 1, drop: 1, hold: 1 };
+    return FLY[speed] || FLY.normal;
+  }
+
+  // 날아가는 패의 움직임(판 안쪽 좌표). from/to: { x, y, w } (왼쪽 위, 너비)
+  // 출발 크기에서 시작 → 도착 바로 위에서 18% 크게 들림 → 내려찍기
+  function flyKeyframes(from, to, t) {
+    const k0 = from.w / to.w;
+    const lift = to.w * 0.35;
+    const mid = t.fly / (t.fly + t.drop);
+    return [
+      { offset: 0, transform: `translate(${from.x}px, ${from.y}px) scale(${k0})`, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      { offset: mid, transform: `translate(${to.x}px, ${to.y - lift}px) scale(1.18)`, easing: 'cubic-bezier(.6,0,1,.6)' },
+      { offset: 1, transform: `translate(${to.x}px, ${to.y}px) scale(1)` },
+    ];
+  }
+
+  GS.fit = { gameBox, cardSizes, nextScale, overflowed, flyTiming, flyKeyframes, MIN_SCALE };
+  if (typeof module !== 'undefined' && module.exports) module.exports = GS.fit;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
 // ===== src/ui.js =====
 // 화면: 시작 화면, 게임판 그리기, 터치, 연출, 창, 정산 반영.
 // 규칙은 GS.rules / GS.score, 컴퓨터는 GS.ai, 저장은 GS.storage, 소리는 GS.audio 에 맡긴다.
@@ -1389,6 +1481,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     if (on) pauseReasons.add(reason); else pauseReasons.delete(reason);
     paused = pauseReasons.size > 0;
     A.hush(paused);
+    flights.forEach((a) => { try { if (paused) a.pause(); else a.play(); } catch (e) { /* 무시 */ } });
     if (!paused) { const w = pauseWaiters; pauseWaiters = []; w.forEach((f) => f()); }
   }
   const won = (n) => Math.round(n).toLocaleString('ko-KR');
@@ -1421,6 +1514,12 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   let lastFlags = [];    // 고도리·홍단 등 처음 됐을 때만 외치기
   let round = 0;         // 판 번호 — 그만하기·새 판 뒤에 늦게 끝난 연출이 끼어들지 않게
   let settledRound = -1; // 정산은 판마다 한 번만
+  let fitScale = 1;      // 화면 맞추기 배율 (저장 안 함 — 켤 때·돌릴 때마다 다시 잼)
+  // 연출 중 화면용 바닥·손패 (act 하나 동안만. 끝나면 null → 진짜 state로 그림)
+  // gone: 먹혀서 바닥에서 빠진 패 / extra: 바닥에 새로 놓인 패 / hidden: 자리만 잡고 아직 안 보이는 패(날아오는 중)
+  // handOut: 손에서 나간 패 / drawn: 더미에서 뒤집은 장수
+  let vis = null;
+  const flights = new Set(); // 지금 움직이는 애니메이션 (멈춤·판 바뀜 때 함께 처리)
 
   // ---------- 저장된 값 반영 ----------
   // 게임을 켠 뒤 합계 (따고 잃은 돈만. 돈 다시 채우기는 빼고, 껐다 켜면 0원부터 — 저장하지 않음)
@@ -1461,28 +1560,113 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     try { if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); } catch (e) { /* 위와 같음 */ }
     try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch (e) { /* 선택 기능 */ }
   }
-  function fitScreen() {
+  // ---------- 화면 맞추기 ----------
+  // 판을 화면/배율 크기로 넓게 그린 뒤 배율만큼 줄여 보여 준다(세로로 들면 90도 돌림).
+  function viewSize() {
+    const v = window.visualViewport;
+    if (v && Math.abs(v.scale - 1) < 0.01) return { W: v.width, H: v.height };
+    return { W: innerWidth, H: innerHeight };
+  }
+  function layoutGame(s) {
     const g = $('#game');
-    const rot = innerHeight > innerWidth;
-    g.classList.toggle('rotated', rot);
-    const W = rot ? innerHeight : innerWidth, H = rot ? innerWidth : innerHeight;
-    const bw = W * 0.81 - 12;
-    const n = mode === 'matgo' ? 10 : 7;
-    const hw = Math.max(28, Math.min((bw - 5 * (n + 1)) / n, (H * 0.31 - 14) / 1.6 / 1.16));
-    const fw = Math.max(24, Math.min((H * 0.35 - 10) / 1.6, bw / 15));
-    const sw = Math.max(16, Math.min((H * 0.17 - 24) / 1.6, 34));
-    for (const el of [g, $('#strip'), $('#ov')]) {
-      el.style.setProperty('--hw', hw + 'px');
-      el.style.setProperty('--fw', fw + 'px');
-      el.style.setProperty('--sw', sw + 'px');
+    const { W, H } = viewSize();
+    const box = GS.fit.gameBox(W, H, s);
+    g.classList.toggle('rotated', box.rot);
+    g.style.width = box.lw + 'px';
+    g.style.height = box.lh + 'px';
+    g.style.transform = box.transform;
+    // 안전영역(카메라 구멍 등): 화면 기준 여백을 판 기준으로 바꿈(돌렸으면 방향을 돌리고, 배율만큼 키움)
+    const sa = safeArea();
+    const pad = box.rot ? [sa.r, sa.b, sa.l, sa.t] : [sa.t, sa.r, sa.b, sa.l];
+    g.style.padding = pad.map((v) => v / s + 'px').join(' ');
+    const iw = box.lw - (pad[1] + pad[3]) / s;
+    const ih = box.lh - (pad[0] + pad[2]) / s;
+    const z = GS.fit.cardSizes(iw, ih, mode, state ? state.players[0].hand.length : 0);
+    for (const el of [g, $('#ov')]) {
+      el.style.setProperty('--hw', z.hw + 'px');
+      el.style.setProperty('--fw', z.fw + 'px');
+      el.style.setProperty('--sw', z.sw + 'px');
+    }
+    for (const el of [$('#ov'), $('#ov2')]) el.style.setProperty('--z', s);
+  }
+  function fitScreen() { layoutGame(fitScale); }
+  let saProbe = null;
+  function safeArea() {
+    if (!saProbe) {
+      saProbe = document.createElement('div');
+      saProbe.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;' +
+        'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+      document.body.appendChild(saProbe);
+    }
+    const c = getComputedStyle(saProbe);
+    return { t: parseFloat(c.paddingTop) || 0, r: parseFloat(c.paddingRight) || 0, b: parseFloat(c.paddingBottom) || 0, l: parseFloat(c.paddingLeft) || 0 };
+  }
+  // 판 안쪽 좌표 (돌리기·배율과 상관없는 값)
+  function localPos(el) {
+    const g = $('#game');
+    let x = 0, y = 0, e = el;
+    while (e && e !== g) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+    return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+  }
+  // 칸 안이 넘치거나 판 밖으로 나간 것이 있는지
+  function gameOverflow() {
+    const g = $('#game');
+    const els = ['#side', '#scores', '#oppzone', '#floorzone', '#mycapzone', '#hand'].map((q) => $(q))
+      .concat([...document.querySelectorAll('#oppzone .opp, #game .caps')]).filter(Boolean);
+    const boxes = els.map((e) => ({ sw: e.scrollWidth, sh: e.scrollHeight, cw: e.clientWidth, ch: e.clientHeight }));
+    const rects = [...document.querySelectorAll('#side > *, #hand img')].filter((e) => e.offsetParent)
+      .map((e) => { const p = localPos(e); return { l: p.x, t: p.y, r: p.x + p.w, b: p.y + p.h }; });
+    return GS.fit.overflowed(boxes, rects, { w: g.clientWidth, h: g.clientHeight });
+  }
+  // 맞추기: 배율 1부터 넘친 곳이 없을 때까지 0.05씩 줄임(최소 0.6)
+  function fitNow() {
+    if ($('#game').hidden) return fitStart();
+    let s = 1;
+    for (;;) {
+      fitScale = s;
+      layoutGame(s);
+      render();
+      if (!state) break;
+      const over = gameOverflow();
+      const n = GS.fit.nextScale(s, over);
+      if (n == null) { if (over) console.warn('화면 맞추기: 가장 작게 해도 넘침', s); break; }
+      s = n;
     }
   }
-  addEventListener('resize', () => { if (!$('#game').hidden) { fitScreen(); render(); } });
+  function fitStart() {
+    const st = $('#start');
+    st.classList.add('fitz');
+    let z = 1;
+    for (;;) {
+      st.style.setProperty('--z', z);
+      for (const el of [$('#ov'), $('#ov2')]) el.style.setProperty('--z', z);
+      const over = st.scrollHeight > st.clientHeight + 1 || st.scrollWidth > st.clientWidth + 1;
+      const n = GS.fit.nextScale(z, over);
+      if (n == null) break;
+      z = n;
+    }
+  }
+  // 화면 크기가 바뀌면(돌림·주소창·전체화면·글꼴) 잠깐 뒤 한 번 맞춤
+  let fitTimer = 0;
+  function fitSoon() { clearTimeout(fitTimer); fitTimer = setTimeout(fitNow, 120); }
+  addEventListener('resize', fitSoon);
+  if (window.visualViewport) visualViewport.addEventListener('resize', fitSoon);
+  document.addEventListener('fullscreenchange', fitSoon);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSoon);
+  // 화면 맞추기 단추: 게임 중이면 전체화면이 아닐 때 한 번 다시 켜 봄(실패해도 맞춤은 함)
+  function fitButton(inGame) {
+    A.unlock();
+    if (inGame) {
+      try { if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {}); } catch (e) { /* 무시 */ }
+    }
+    fitNow();
+    if (inGame) setRecent('화면을 맞췄어요');
+  }
 
   // ---------- 카드 그림 ----------
   function cardImg(id, cls) {
     const i = document.createElement('img');
-    i.className = 'card' + (cls ? ' ' + cls : '');
+    i.className = 'card' + (cls && cls.trim() ? ' ' + cls.trim() : '');
     i.alt = id == null ? '뒷면' : CARDS[id].name;
     i.src = id == null ? GS.art.backUrl : GS.art.url(id);
     i.draggable = false;
@@ -1528,7 +1712,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const f = $('#floor');
     f.innerHTML = '';
     const by = new Map();
-    for (const id of state.floor) {
+    const floorIds = vis ? state.floor.concat(vis.extra).filter((id) => !vis.gone.has(id)) : state.floor;
+    for (const id of floorIds) {
       const m = CARDS[id].month;
       if (!by.has(m)) by.set(m, []);
       by.get(m).push(id);
@@ -1538,14 +1723,15 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     for (const [m, ids] of by) {
       const p = document.createElement('div');
       p.className = 'pile';
-      ids.forEach((id) => p.appendChild(cardImg(id, showHints && m === liftedMonth ? 'target' : '')));
+      ids.forEach((id) => p.appendChild(cardImg(id, (showHints && m === liftedMonth ? 'target' : '') + (vis && vis.hidden.has(id) ? ' ghost' : ''))));
       if (state.ppeokOwner && state.ppeokOwner[m] != null && ids.length === 3) p.insertAdjacentHTML('beforeend', '<span class="ppk">뻑</span>');
       f.appendChild(p);
     }
     const dk = $('#deck');
     dk.innerHTML = '';
-    if (state.deck.length) dk.appendChild(cardImg(null));
-    dk.insertAdjacentHTML('beforeend', `<span class="cnt">${state.deck.length}장</span>`);
+    const deckN = Math.max(0, state.deck.length - (vis ? vis.drawn : 0));
+    if (deckN) dk.appendChild(cardImg(null));
+    dk.insertAdjacentHTML('beforeend', `<span class="cnt">${deckN}장</span>`);
 
     // 내 먹은 패
     const mc = $('#mycaps');
@@ -1558,7 +1744,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const myTurn = pend && pend.player === 0 && pend.type === 'play' && !busy && !paused;
     h.classList.toggle('locked', !myTurn);
     const floorMonths = new Set(state.floor.map((id) => CARDS[id].month));
-    for (const id of sortHand(me.hand, me.september)) {
+    for (const id of sortHand(vis ? me.hand.filter((x) => !vis.handOut.has(x)) : me.hand, me.september)) {
       const c = CARDS[id];
       let cls = '';
       if (myTurn && showHints && (c.kind === 'bonus' || floorMonths.has(c.month))) cls = 'hint';
@@ -1637,7 +1823,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const r = calc(i);
     const total = (r.base || 0) + (p.goCount || 0);
     const d = document.createElement('div');
-    d.className = 'sc' + (i === turn ? ' turn' : '');
+    d.className = 'sc' + (i !== 0 ? ' mini' : '') + (i === turn ? ' turn' : '');
     const extra = [];
     if (p.goCount) extra.push(p.goCount + '고');
     if (p.shakes) extra.push('흔들기 ' + p.shakes);
@@ -1681,7 +1867,13 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   function clearEffects() {
     shoutChain = Promise.resolve();
     $('#shout').classList.remove('on', 'pop');
-    hideStrip();
+    clearFly();
+  }
+  function clearFly() {
+    flights.forEach((a) => { try { a.cancel(); } catch (e) { /* 무시 */ } });
+    flights.clear();
+    $('#fly').innerHTML = '';
+    vis = null;
   }
   // 큰 순간 → 트로트 장단 이름 (없으면 장단 없음)
   function trotName(fxType, n) {
@@ -1695,48 +1887,148 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     b.classList.add('shake');
     setTimeout(() => b.classList.remove('shake'), 200);
   }
-  function showStrip(parts) {
-    const st = $('#strip');
-    st.innerHTML = '';
-    for (const [label, ids] of parts) {
-      const box = document.createElement('div');
-      box.innerHTML = `<div class="t">${label}</div>`;
-      const row = document.createElement('div');
-      row.className = 'row';
-      ids.forEach((id) => row.appendChild(cardImg(id)));
-      box.appendChild(row);
-      st.appendChild(box);
-    }
-    st.hidden = false;
+  function thud() {
+    const b = $('#board');
+    if (b.classList.contains('shake')) return; // 큰 흔들림 중이면 그대로
+    b.classList.remove('thud');
+    void b.offsetWidth;
+    b.classList.add('thud');
+    setTimeout(() => b.classList.remove('thud'), 120);
   }
-  const hideStrip = () => { $('#strip').hidden = true; };
+
+  // ---------- 패 날리기 (날아가서 착!) ----------
+  const track = (anim) => { flights.add(anim); if (paused) anim.pause(); return anim; };
+  // 끝날 때까지 기다림. 안전장치: 멈춰 있지 않은 시간으로 (ms+3초)가 지나도 안 끝나면 끝으로 보냄
+  const animDone = (anim, ms) => new Promise((res) => {
+    let left = ms + 3000, last = Date.now(), timer = 0;
+    const done = () => { clearTimeout(timer); res(); };
+    const tick = () => {
+      const now = Date.now();
+      if (!paused) left -= now - last;
+      last = now;
+      if (left <= 0) { try { anim.finish(); } catch (e) { /* 무시 */ } return done(); }
+      timer = setTimeout(tick, 250);
+    };
+    timer = setTimeout(tick, 250);
+    anim.finished.then(done, done);
+  }).then(() => { flights.delete(anim); });
+  const cssPx = (k) => parseFloat(getComputedStyle($('#game')).getPropertyValue(k)) || 40;
+  // 출발점(판 안쪽 좌표): 내 손패 자리 / 더미 / 상대 이름표
+  function startPoint(player, id, src) {
+    if (src === 'deck') {
+      const el = $('#deck img') || $('#deck');
+      const p = localPos(el);
+      return { x: p.x, y: p.y, w: p.w || cssPx('--fw') };
+    }
+    if (player === 0) {
+      const el = document.querySelector(`#hand img[data-id="${id}"]`);
+      if (el) return localPos(el);
+      const h = localPos($('#hand'));
+      return { x: h.x + h.w / 2, y: h.y, w: cssPx('--hw') };
+    }
+    const opp = document.querySelector(`#oppzone .opp:nth-child(${player}) .who-tag`) || $('#oppzone');
+    const p = localPos(opp);
+    const w = cssPx('--fw') * 0.7;
+    return { x: p.x + p.w / 2 - w / 2, y: p.y, w };
+  }
+  // 한 장 날리기. flip: 뒷면으로 출발해 날면서 앞면으로. 판이 바뀌면 CANCEL
+  async function flyCard(r0, id, from, to, flip) {
+    const t = GS.fit.flyTiming(cfg.speed, GS.testFast);
+    const wrap = document.createElement('div');
+    wrap.className = 'fc';
+    const img = cardImg(flip ? null : id);
+    img.style.setProperty('--w', to.w + 'px');
+    wrap.appendChild(img);
+    $('#fly').appendChild(wrap);
+    const total = t.fly + t.drop;
+    const main = track(wrap.animate(GS.fit.flyKeyframes(from, to, t), { duration: total, fill: 'forwards' }));
+    if (flip) {
+      (async () => {
+        const half = Math.max(1, t.fly * 0.4);
+        const h1 = track(img.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(90deg)' }], { duration: half, fill: 'forwards' }));
+        await animDone(h1, half);
+        if (r0 !== round || !wrap.isConnected) return;
+        img.src = GS.art.url(id);
+        img.alt = CARDS[id].name;
+        const h2 = track(img.animate([{ transform: 'rotateY(90deg)' }, { transform: 'rotateY(0deg)' }], { duration: half, fill: 'forwards' }));
+        await animDone(h2, half);
+      })();
+    }
+    await animDone(main, total);
+    if (r0 !== round) throw CANCEL;
+    if (flip) { img.src = GS.art.url(id); img.alt = CARDS[id].name; } // 뒤집기가 늦어도 앞면으로
+    return wrap;
+  }
+  function unghost(id) {
+    if (!vis) return;
+    vis.hidden.delete(id);
+    const el = document.querySelector(`#floor img[data-id="${id}"]`);
+    if (el) el.classList.remove('ghost');
+  }
+  // 바닥으로: 같은 월 묶음(없으면 새 자리)에 자리를 먼저 잡고(안 보이게) → 그 자리로 날아가 착!
+  async function landOnFloor(r0, player, ids, src) {
+    const froms = ids.map((id) => startPoint(player, id, src));
+    if (src === 'hand' && player === 0) ids.forEach((id) => vis.handOut.add(id));
+    if (src === 'deck') vis.drawn += ids.length;
+    ids.forEach((id) => { vis.extra.push(id); vis.hidden.add(id); });
+    render();
+    const flip = !(src === 'hand' && player === 0);
+    const wraps = await Promise.all(ids.map((id, i) => {
+      const el = document.querySelector(`#floor img[data-id="${id}"]`);
+      return el ? flyCard(r0, id, froms[i], localPos(el), flip) : null;
+    }));
+    A.slap(true);
+    thud();
+    wraps.forEach((w) => w && w.remove());
+    ids.forEach(unghost);
+    await sleepIn(r0, GS.fit.flyTiming(cfg.speed, GS.testFast).hold);
+  }
+  // 보너스 패: 그 사람 먹은 패 칸으로 날아가 스르르
+  async function flyToCaps(r0, player, id, src) {
+    const from = startPoint(player, id, src);
+    if (src === 'hand' && player === 0) vis.handOut.add(id);
+    if (src === 'deck') vis.drawn += 1;
+    render();
+    const caps = player === 0 ? $('#mycaps') : document.querySelector(`#oppzone .opp:nth-child(${player}) .caps`);
+    const sw = cssPx('--sw');
+    let to;
+    if (caps) { const p = localPos(caps); to = { x: p.x + Math.max(0, p.w - sw), y: p.y + Math.max(0, p.h - sw * 1.6), w: sw }; }
+    else to = { x: from.x, y: from.y, w: sw };
+    const wrap = await flyCard(r0, id, from, to, !(src === 'hand' && player === 0));
+    A.slap();
+    const fade = track(wrap.animate([{ opacity: 1 }, { opacity: 0 }], { duration: GS.testFast ? 1 : 200, fill: 'forwards' }));
+    animDone(fade, 200).then(() => wrap.remove());
+  }
 
   async function playEvents(events, who, r0 = round) {
     const wait = (ms) => sleepIn(r0, ms);
-    const names = NAMES[mode];
-    const strip = [];
     const notes = [];
     let stolenByMe = 0, stolenFromMe = 0;
-    for (const e of events) {
+    let flew = false;
+    let flippedBonus = null; // 더미에서 뒤집힌 보너스(이미 먹은 패 칸으로 날렸음)
+    vis = { gone: new Set(), extra: [], hidden: new Set(), handOut: new Set(), drawn: 0 };
+    try {
+    for (let k = 0; k < events.length; k++) {
+      const e = events[k];
       switch (e.type) {
         case 'play':
-          strip.push([ga(names[e.player]) + ' 낸 패', e.cards]);
-          showStrip(strip);
-          A.slap(true);
-          await wait(e.player === 0 ? T().mine : T().show);
+          await landOnFloor(r0, e.player, e.cards, 'hand');
+          flew = true;
           break;
         case 'bonus':
-          strip.push([my(names[e.player]) + ' 보너스', [e.card]]);
-          showStrip(strip);
-          A.slap();
+          if (flippedBonus !== e.card) await flyToCaps(r0, e.player, e.card, 'hand');
+          flippedBonus = null;
+          flew = true;
           await shout(r0, '보너스!', 'bonus', T().short, 'steal');
           break;
-        case 'flip':
-          strip.push(['뒤집은 패', [e.card]]);
-          showStrip(strip);
-          A.slap();
-          await wait(T().show);
+        case 'flip': {
+          const nx = events[k + 1];
+          if (nx && nx.type === 'bonus' && nx.card === e.card) { await flyToCaps(r0, e.player, e.card, 'deck'); flippedBonus = e.card; }
+          else await landOnFloor(r0, e.player, [e.card], 'deck');
+          flew = true;
           break;
+        }
+        case 'capture': e.cards.forEach((id) => vis.gone.add(id)); break; // 다음 그리기 때 바닥에서 빠짐
         case 'bonusToDealer': await shout(r0, '보너스!', 'bonus', T().short, 'steal'); notes.push('바닥 보너스는 선이 가져가요'); break;
         case 'bomb': await shout(r0, '폭탄!', 'bomb', 0, 'bomb'); notes.push('폭탄'); break;
         case 'shake': await shout(r0, '흔들기!', 'shake', 0, 'shake'); notes.push('흔들기'); break;
@@ -1760,8 +2052,10 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
         default: break;
       }
     }
-    if (strip.length) await wait(T().tail);
-    hideStrip();
+    if (flew) await wait(T().tail);
+    } finally {
+      if (r0 === round) clearFly(); // 이 뒤 진짜 state로 그림
+    }
     let msg = notes.length ? '방금: ' + notes.join(', ') : '';
     if (stolenByMe) { msg += (msg ? ' · ' : '방금: ') + `피 ${stolenByMe}장 가져왔어요`; A.fx('steal'); }
     if (stolenFromMe) msg += (msg ? ' · ' : '방금: ') + `피 ${stolenFromMe}장 뺏겼어요`;
@@ -2019,8 +2313,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     state = R.newGame({ mode, seed, dealer: dealer < n ? dealer : 0, nagariMult, september });
     lifted = null;
     lastFlags = [];
-    fitScreen();
-    render();
+    fitNow();
     setMsg('자, 시작해요!');
     A.say('start');
     const r0 = round;
@@ -2059,6 +2352,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     $('#start').hidden = false;
     try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { /* 무시 */ }
     refreshStart();
+    fitStart();
   }
 
   // 다른 앱 갔다 오면 멈추고 [계속하기]. 원래 떠 있던 창(고/스톱·결과창 등)은 그대로 둔 채 위에 덮는다
@@ -2077,7 +2371,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     once(ov.querySelector('#go-on'), async () => {
       closeSys();
       await goLandscape();
-      fitScreen();
+      fitNow();
       setPause('hidden', false);
       if (!busy) loop();
     });
@@ -2130,6 +2424,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   $('#b-settings').onclick = openSettings;
   $('#b-rules').onclick = openRules;
   $('#b-refill').onclick = () => { const r = ST.refill(); saveOk = r.ok; refreshStart(); };
+  $('#b-fit1').onclick = () => fitButton(false);
+  $('#b-fit2').onclick = () => fitButton(true);
   $('#b-home').onclick = () => {
     setPause('confirm', true); // 묻는 동안 컴퓨터도 멈춤
     const ov = sysDialog('<h2>그만할까요?</h2><p>지금 판은 없던 일이 돼요.</p><div class="row"><button class="big" id="y">그만하기</button><button class="plain" id="n">계속하기</button></div>');
@@ -2148,6 +2444,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   // 저장이 되는지 처음에 한 번 확인
   saveOk = ST.save(ST.load());
   refreshStart();
+  fitStart();
   // 화면 확인용(개발): 콘솔에서 상태를 볼 수 있게
   // screen: 'start' = 시작 화면 / 'game' = 게임 중(결과창 포함)
   // canUpdate: 홈 화면 앱의 새 버전을 적용(새로고침)해도 되는 때 — 창이 모두 닫힌 시작 화면
@@ -2155,7 +2452,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     get state() { return state; },
     get screen() { return $('#game').hidden ? 'start' : 'game'; },
     get canUpdate() { return state === null && !busy && !starting && !$('#start').hidden && $('#game').hidden && $('#ov').hidden && $('#ov2').hidden; },
-    startGame, home, act, loop, sortHand,
+    get fitScale() { return fitScale; }, overflow: () => gameOverflow(),
+    startGame, home, act, loop, sortHand, fitNow,
   };
 })();
 
