@@ -1102,7 +1102,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
           // 목소리가 나오는 동안 효과음은 살짝 줄인다
           if (fxBus && ctx) try {
             fxBus.gain.cancelScheduledValues(ctx.currentTime); fxBus.gain.setTargetAtTime(0.4, ctx.currentTime, 0.01);
-            trotBus.gain.cancelScheduledValues(ctx.currentTime); trotBus.gain.setTargetAtTime(0.3, ctx.currentTime, 0.01);
+            trotBus.gain.cancelScheduledValues(ctx.currentTime); trotBus.gain.setTargetAtTime(trotOpts.timbre === 'bell' || trotOpts.timbre === 'marimba' ? 0.6 : 0.3, ctx.currentTime, 0.01); // 짧은 종소리는 덜 줄임(폰에서 묻힘)
           } catch (e) { /* 무시 */ }
           const p = a.play();
           if (p && p.catch) p.catch(() => v.finish());
@@ -1293,9 +1293,14 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     trotRun(o, t0, dur, g, [f]);
   }
   // 통통 튀는 음 (마림바·종소리): 치자마자 크게, 바로 줄어듦
+  // 폰 스피커에서도 들리게: 크게 치고, 밑에 부드러운 소리를 음 길이만큼 깔아 줌
   function pluck(t0, hz, dur, timbre) {
-    const parts = timbre === 'bell' ? [[1, 0.06], [2.76, 0.02], [5.4, 0.008]] : [[1, 0.09], [3.9, 0.018]]; // [배음, 크기]
-    const len = Math.min(timbre === 'bell' ? 0.9 : 0.4, Math.max(0.12, dur * 1.4));
+    const parts = timbre === 'bell' ? [[1, 0.13], [2.76, 0.04], [5.4, 0.015]] : [[1, 0.16], [3.9, 0.03]]; // [배음, 크기]
+    const len = Math.min(timbre === 'bell' ? 0.9 : 0.4, Math.max(0.18, dur * 1.4));
+    const pad = ctx.createOscillator(), pg = tGain(t0, 0.035, Math.max(0.08, dur * 0.95), 0.01, 0.05);
+    pad.type = 'triangle'; pad.frequency.value = hz;
+    pad.connect(pg);
+    trotRun(pad, t0, Math.max(0.08, dur * 0.95), pg);
     parts.forEach(([mul, peak]) => {
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = 'sine'; o.frequency.value = hz * mul;
@@ -1361,7 +1366,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     if (!score) return 0;
     stopTrot(); // 앞 장단은 끊고 새로 (겹침 방지)
     const groove = opts.groove || trotOpts.groove;
-    const need = score.length * 4 + score.reduce((a, x) => a + x[1], 0) * (groove === 'disco' ? 6 : groove === 'pop' ? 4 : 2); // 대략 음마다 4개, 박마다 2개(디스코 6개)
+    const need = score.length * 5 + score.reduce((a, x) => a + x[1], 0) * (groove === 'disco' ? 6 : groove === 'pop' ? 5 : 2); // 대략 음마다 4개, 박마다 2개(디스코 6개)
     if (live.size + need > MAX_LIVE * 2) return 0; // 너무 몰리면 이번 장단은 건너뜀(효과음·목소리는 그대로)
     const scale = SCALES[opts.scale || trotOpts.scale] || SCALES.yonanuki;
     const timbre = opts.timbre || trotOpts.timbre;
@@ -1378,9 +1383,11 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       const bt = t0 + i * beat;
       if (groove === 'pop') {
         // 가벼운 팝: 첫째·셋째 박 쿵(작게), 둘째·넷째 박 짝, 뒷박마다 찰랑
-        if (i % 2 === 0) kick(bt, i === 0, i % 4 === 0 ? 130.81 : 98, beat); // 도-솔 베이스
+        const root = i % 4 < 2 ? 261.63 : 196; // 도-솔 (폰 스피커에서 들리는 높이)
+        if (i % 2 === 0) kick(bt, i === 0, root / 2, beat);
         else chak(bt);
-        hat(bt + beat / 2, 0.025);
+        hat(bt + beat / 2, 0.03);
+        obass(bt + beat / 2, root, beat * 0.4);
       } else if (groove === 'disco') {
         // 디스코 뽕짝: 박마다 쿵, 둘째 박엔 짝 겹침, 뒷박엔 치 + 옥타브 위 베이스 (둥-둥 뛰는 느낌)
         const root = i % 4 < 2 ? 110 : 82.41;
