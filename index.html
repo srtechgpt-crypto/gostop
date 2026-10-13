@@ -256,6 +256,32 @@ img.px{image-rendering:pixelated;image-rendering:crisp-edges;display:inline-bloc
 #floorzone.lay-circle #floor::before{content:'';position:absolute;inset:6% 4%;border:3px dashed #ffffff22;border-radius:50%;pointer-events:none}
 #start .plain{background:#000a}
 #side .sc.turn{border-color:var(--gold)} /* 나무 칸에서도 지금 차례 금색 테두리 */
+
+/* ---------- 기능 9: 가족 판 ---------- */
+.big.family{background:linear-gradient(#7fd3ff,#3a8fd8);color:#08213a;box-shadow:0 5px 0 #1f5a8f}
+.big.family:active{box-shadow:0 2px 0 #1f5a8f}
+.fam .big1{font-size:22px;font-weight:700;margin:4px 0;line-height:1.35}
+.fam .tally{margin:4px auto 8px;border-collapse:collapse;font-size:22px}
+.fam .tally th{font-size:17px;color:var(--ink-dim);padding:2px 14px}
+.fam .tally td{padding:4px 14px;border-top:2px solid var(--felt-line);text-align:center}
+.fam .tally td:first-child{text-align:left;font-weight:900}
+.fam .tally b{color:var(--gold)}
+.dot{color:#777;font-size:16px}.dot.on{color:#3ecf8e}
+.fam .seats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:6px 0}
+.fam .seat{background:var(--panel);border:3px solid var(--gold);border-radius:14px;padding:8px 16px;font-size:22px;font-weight:900}
+.fam .seat.empty{border-style:dashed;border-color:var(--felt-line);color:var(--ink-dim);font-weight:700}
+.fam .pin{font-size:44px;letter-spacing:12px;color:var(--gold);font-weight:900}
+.fam .pad{display:grid;grid-template-columns:repeat(3,96px);gap:8px;justify-content:center}
+.fam .key{background:var(--panel);color:var(--ink);font-size:28px;min-height:60px;border:3px solid var(--felt-line)}
+.fam .key:active{background:var(--gold);color:var(--btn-ink)}
+.fam .names .big{min-width:150px}
+.plain.danger{color:#ffb3b9;border-color:#a33}
+#famwait{position:absolute;left:50%;top:6px;transform:translateX(-50%);z-index:30;background:#000c;border:3px solid var(--gold);border-radius:14px;padding:6px 12px;display:flex;gap:10px;align-items:center;font-size:18px;max-width:70%}
+#famwait[hidden]{display:none}
+#famwait .big{font-size:20px;min-height:48px;padding:6px 14px}
+#game.family #board::after{content:'가족 판';position:absolute;right:8px;bottom:4px;background:#3a8fd8;color:#fff;font-weight:900;font-size:15px;border-radius:10px;padding:1px 10px;pointer-events:none}
+#game.family #board{position:relative}
+@media (max-height:420px){.fam .pad{grid-template-columns:repeat(6,72px)}.fam .key{min-height:52px;font-size:24px}.fam .pin{font-size:34px}}
 </style>
 <style>:root{--display:"Black Han Sans",sans-serif;--body:system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}</style>
 
@@ -266,6 +292,7 @@ img.px{image-rendering:pixelated;image-rendering:crisp-edges;display:inline-bloc
   <div class="row">
     <button class="big dojang" id="b-dojang">도장깨기</button>
     <button class="big" id="b-matgo">컴퓨터와 맞고</button>
+    <button class="big family" id="b-family">가족 판<small>각자 폰으로 함께</small></button>
     <button class="big" id="b-three">셋이 고스톱</button>
   </div>
   <div class="row">
@@ -309,6 +336,7 @@ img.px{image-rendering:pixelated;image-rendering:crisp-edges;display:inline-bloc
     </div>
   </div>
   <div id="fly"></div>
+  <div id="famwait" hidden></div>
 </div>
 <div id="shout"></div>
 <div id="ov" class="overlay" hidden></div>
@@ -1034,6 +1062,172 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   if (typeof module !== 'undefined' && module.exports) module.exports = GS.ai;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
+// ===== src/family.js =====
+// 가족 판(기능 9) 순수 계산: 자리 돌리기(내 자리를 0번으로), 같은 판 재생, 진짜 자리 기준 정산, 승수 세기
+// 통신(Firebase)은 famnet.js, 화면은 famui.js·ui.js. 이 파일은 화면·통신을 모른다(테스트하기 쉽게).
+(function (root) {
+  'use strict';
+  const GS = (root.GS = root.GS || {});
+  if (!GS.rules && typeof require === 'function') { require('./cards.js'); require('./score.js'); require('./rules.js'); }
+  const R = GS.rules, S = GS.score;
+  const copy = (x) => JSON.parse(JSON.stringify(x));
+
+  // 판 기록 형식 버전 — 엔진·카드·이 파일의 재생 방식이 바뀌면 올린다(다른 버전 폰은 같은 판에 못 들어옴)
+  const PROTO = 'f1';
+  const MEMBERS = ['m1', 'm2', 'm3'];
+  const DEFAULT_NAMES = { m1: '어머님', m2: '대표님', m3: '애기엄마' };
+  const POINT = 1000;
+
+  // ---------- 자리 돌리기 ----------
+  // 진짜 자리 i → 내 화면 자리 (내가 0번)
+  const rot = (i, me, n) => (Number.isInteger(i) && i >= 0 && i < n ? (i - me + n) % n : i);
+  const reorder = (arr, me, n) => (Array.isArray(arr) && arr.length === n ? arr.map((_, v) => arr[(v + me) % n]) : arr);
+
+  // 엔진 상태 → 내 화면용 복사본 (진짜 상태는 바꾸지 않음)
+  function rotate(real, me) {
+    const n = real.players.length;
+    if (!me) return copy(real);
+    const v = copy(real);
+    v.players = reorder(v.players, me, n);
+    v.turn = rot(v.turn, me, n);
+    v.dealer = rot(v.dealer, me, n);
+    if (v.firstPpeok != null) v.firstPpeok = rot(v.firstPpeok, me, n);
+    if (v.ppeokOwner) for (const k of Object.keys(v.ppeokOwner)) v.ppeokOwner[k] = rot(v.ppeokOwner[k], me, n);
+    if (v.firstTurnDone) v.firstTurnDone = Array.isArray(v.firstTurnDone) ? reorder(v.firstTurnDone, me, n) : rotKeys(v.firstTurnDone, me, n);
+    if (v.pendingDecision && v.pendingDecision.player != null) v.pendingDecision.player = rot(v.pendingDecision.player, me, n);
+    if (v.ended) v.ended = rotEnded(v.ended, me, n);
+    if (v.initialEvents) v.initialEvents = rotateEvents(v.initialEvents, me, n);
+    if (Array.isArray(v.balances)) v.balances = reorder(v.balances, me, n);
+    return v;
+  }
+  function rotKeys(obj, me, n) { const o = {}; for (const k of Object.keys(obj)) o[rot(Number(k), me, n)] = obj[k]; return o; }
+  function rotEnded(e, me, n) {
+    const x = copy(e);
+    if (x.winner != null) x.winner = rot(x.winner, me, n);
+    if (x.settle) x.settle = rotateSettle(x.settle, me, n);
+    return x;
+  }
+  // S.settle 결과의 자리 번호를 돌림 (화면 표시용)
+  function rotateSettle(s, me, n) {
+    if (!s || !me) return s && copy(s);
+    const x = copy(s);
+    if (x.winner != null) x.winner = rot(x.winner, me, n);
+    if (Array.isArray(x.losers)) x.losers.forEach((l) => { l.player = rot(l.player, me, n); if (l.paidBy != null) l.paidBy = rot(l.paidBy, me, n); });
+    if (x.firstPpeok) x.firstPpeok.player = rot(x.firstPpeok.player, me, n);
+    if (Array.isArray(x.deltas)) x.deltas = reorder(x.deltas, me, n);
+    return x;
+  }
+  const SEAT_FIELDS = ['player', 'from', 'to', 'winner'];
+  function rotateEvents(events, me, n) {
+    return (events || []).map((e) => {
+      const x = copy(e);
+      for (const f of SEAT_FIELDS) if (x[f] != null) x[f] = rot(x[f], me, n);
+      if (x.result) x.result = rotEnded(x.result, me, n);
+      return x;
+    });
+  }
+
+  // ---------- 판 시작값 ----------
+  // start = { v, mode, seed, dealer, nagariMult, sept[], point, seats[memberId|'cpu'], diff, day }
+  function validStart(st) {
+    if (!st || typeof st !== 'object' || st.v !== PROTO) return false;
+    const n = st.mode === 'matgo' ? 2 : st.mode === 'three' ? 3 : 0;
+    if (!n || !Array.isArray(st.seats) || st.seats.length !== n) return false;
+    if (!st.seats.every((m) => m === 'cpu' || MEMBERS.includes(m))) return false;
+    if (new Set(st.seats.filter((m) => m !== 'cpu')).size !== st.seats.filter((m) => m !== 'cpu').length) return false;
+    if (!Number.isInteger(st.seed) || !Number.isInteger(st.dealer) || st.dealer < 0 || st.dealer >= n) return false;
+    if (![1, 2, 4, 8].includes(st.nagariMult)) return false;
+    if (!Array.isArray(st.sept) || st.sept.length !== n || !st.sept.every((x) => x === 'pi' || x === 'yeol')) return false;
+    return true;
+  }
+  function newGameOf(st) {
+    return R.newGame({ mode: st.mode, seed: st.seed, dealer: st.dealer, nagariMult: st.nagariMult, september: st.sept });
+  }
+
+  // ---------- 재생 ----------
+  // 행동 목록을 처음부터 적용. 하나라도 합법이 아니면 거기서 멈추고 bad로 알림(그 판은 무효 처리)
+  const same = (a, b) => a.type === b.type && a.card === b.card && a.yes === b.yes && a.win === b.win;
+  function legal(state, a) { return !!a && R.legalActions(state).some((x) => same(x, a)); }
+  function replay(st, actions) {
+    let s = newGameOf(st);
+    for (let i = 0; i < actions.length; i++) {
+      if (!legal(s, actions[i])) return { state: s, applied: i, bad: i };
+      s = R.apply(s, actions[i]).state;
+    }
+    return { state: s, applied: actions.length, bad: -1 };
+  }
+
+  // ---------- 정산 (진짜 자리 기준, 잔액 상한 없음 → 모든 폰에서 같은 금액) ----------
+  function settleReal(real, st) {
+    const end = real.ended || {};
+    const n = real.players.length;
+    if (end.type === 'nagari') {
+      const deltas = new Array(n).fill(0);
+      if (real.firstPpeok != null) {
+        const each = real.goal * (st.point || POINT);
+        for (let i = 0; i < n; i++) if (i !== real.firstPpeok) { deltas[i] -= each; deltas[real.firstPpeok] += each; }
+      }
+      return { nagari: true, deltas, nextNagariMult: Math.min(8, (real.nagariMult || 1) * 2), nextDealer: real.dealer };
+    }
+    const s = S.settle({
+      mode: real.mode, winner: end.winner, special: end.special || null,
+      players: real.players.map((p) => ({ captured: p.captured, september: p.september, goCount: p.goCount || 0, lastGoTurn: p.lastGoTurn, shakes: p.shakes || 0, bombs: p.bombs || 0 })),
+      nagariMult: real.nagariMult || 1, pointValue: st.point || POINT,
+      firstPpeok: real.firstPpeok != null ? real.firstPpeok : null,
+    });
+    return { nagari: false, settle: s, deltas: s.deltas, winner: end.winner, nextNagariMult: 1, nextDealer: end.winner };
+  }
+
+  // ---------- 승수 (원장 /wins/{gameId}: { m, day }) ----------
+  function tally(wins, today) {
+    const all = {}, day = {};
+    for (const m of MEMBERS) { all[m] = 0; day[m] = 0; }
+    for (const id of Object.keys(wins || {})) {
+      const w = wins[id];
+      if (!w || !MEMBERS.includes(w.m)) continue;
+      all[w.m]++;
+      if (w.day === today) day[w.m]++;
+    }
+    return { all, day };
+  }
+
+  // ---------- 컴퓨터 자리를 누가 계산하나 ----------
+  // 접속 중인 사람 중 자리 번호가 가장 작은 사람(여럿이 동시에 해도 행동 칸은 한 번만 써짐).
+  // 자기 자리가 대타(컴퓨터)여도 폰이 켜져 있으면 계산은 맡을 수 있음
+  function cpuRunner(st, online) {
+    for (let i = 0; i < st.seats.length; i++) {
+      const m = st.seats[i];
+      if (m !== 'cpu' && online && online[m]) return m;
+    }
+    return null;
+  }
+  // 접속 표시는 연결(폰·창)마다 따로: online[m] = { 연결id: {on, at} } → 하나라도 켜져 있으면 접속 중, 아니면 가장 늦게 끊긴 시각
+  function memberOnline(online, m) {
+    const cs = (online && online[m]) || {};
+    let on = false, at = 0, any = false;
+    for (const k of Object.keys(cs)) { const c = cs[k]; if (!c || typeof c !== 'object') continue; any = true; if (c.on) on = true; if (Number(c.at) > at) at = Number(c.at); }
+    return { on, at, known: any };
+  }
+  const onlineMap = (online, members) => Object.fromEntries(members.map((m) => [m, memberOnline(online, m).on]));
+  // 이 자리를 지금 컴퓨터가 치는가 (원래 컴퓨터 자리 또는 대타)
+  const isCpuSeat = (st, ctrl, seat) => st.seats[seat] === 'cpu' || !!(ctrl && ctrl[seat] === 'cpu');
+
+  // ---------- 영수증 (내 돈은 판마다 한 번만) ----------
+  const PAID_MAX = 60;
+  function cleanFam(raw) {
+    const out = { paid: [] };
+    if (raw && typeof raw === 'object' && Array.isArray(raw.paid)) out.paid = raw.paid.filter((x) => typeof x === 'string' && x.length <= 40).slice(-PAID_MAX);
+    return out;
+  }
+  function addPaid(fam, gameId) { const f = cleanFam(fam); if (!f.paid.includes(gameId)) f.paid.push(gameId); f.paid = f.paid.slice(-PAID_MAX); return f; }
+
+  // 한국 날짜 (가족 모두 같은 날짜로 승수를 셈 — 폰 시간대와 상관없이)
+  function kstDay(ms) { const d = new Date(ms + 9 * 3600 * 1000); return d.toISOString().slice(0, 10); }
+
+  GS.family = { PROTO, MEMBERS, DEFAULT_NAMES, POINT, rot, rotate, rotateEvents, rotateSettle, validStart, newGameOf, legal, replay, settleReal, tally, cpuRunner, memberOnline, onlineMap, isCpuSeat, cleanFam, addPaid, kstDay, same };
+  if (typeof module !== 'undefined' && module.exports) module.exports = GS.family;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
 // ===== src/progress.js =====
 // 혼자 하기 재미(기능 8): 도장깨기·출석 용돈·오늘의 숙제·족보 도감·칭호·기록 — 순수 계산만
 // 저장은 storage.js가 돈과 같은 키(prog 칸)에 한 번에 한다. 이 파일은 화면·저장을 모른다.
@@ -1285,6 +1479,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
 (function (root) {
   const GS = (root.GS = root.GS || {});
   if (!GS.progress && typeof require === 'function') require('./progress.js');
+  if (!GS.family && typeof require === 'function') require('./family.js');
   const P = GS.progress;
   const KEY = 'woorizip-gostop.v1';
   const START_MONEY = 1000000;
@@ -1320,6 +1515,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   function clean(raw) {
     const out = { ...DEFAULTS };
     out.prog = P.clean(raw && typeof raw === 'object' ? raw.prog : null);
+    out.fam = GS.family ? GS.family.cleanFam(raw && typeof raw === 'object' ? raw.fam : null) : { paid: [] }; // 가족 판 영수증(판마다 한 번 정산)
     if (raw && typeof raw === 'object') {
       for (const k of Object.keys(VALID)) if (VALID[k](raw[k])) out[k] = raw[k];
       if (VALID.money(raw.money)) out.money = Math.floor(raw.money);
@@ -2188,6 +2384,421 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   GS.fun = { init: (h) => { H = h; }, cancelAsk, px, face, icon, man, pointText, refreshStart, chooseOpponent, showDaily, showQuests, showDex, showRecords, celebrate, showJackpot, bubble, clearBubble, line };
 })();
 
+// ===== src/famnet.js =====
+// 가족 판 통신(기능 9). 실제는 Firebase Realtime Database(가족 판을 누를 때만 불러옴),
+// 시험은 같은 브라우저 창들끼리 localStorage로 주고받는 '가짜 통신' — 둘 다 아래 db 모양을 맞춘다.
+//   db = { uid, get(path), set(path, v), tx(path, fn) → {committed, value}, on(path, cb) → 끄기, onDisconnect(path, v), now() }
+(function () {
+  'use strict';
+  const FB_VER = '10.12.2';
+  const CONFIG = {
+    apiKey: 'AIzaSyA74NVMSdsvUXQh8bnxmm0C-exec5yj9Yc', authDomain: 'uri-gostop.firebaseapp.com',
+    databaseURL: 'https://uri-gostop-default-rtdb.asia-southeast1.firebasedatabase.app',
+    projectId: 'uri-gostop', appId: '1:745848009711:web:c6ba45bb6a4b89a04f7c1a',
+  };
+  const withTimeout = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+
+  // ---------- 실제: Firebase ----------
+  async function firebaseDb() {
+    const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
+    const [app, auth, dbm] = await withTimeout(Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-database.js')]), 15000, 'sdk');
+    // 시험: 주소에 ?emu 가 있으면 이 PC의 Firebase 에뮬레이터(demo-gostop)에 붙음
+    const emu = /[?&]emu(&|$)/.test(location.search);
+    const conf = emu ? { apiKey: 'demo-key', projectId: 'demo-gostop', databaseURL: 'http://127.0.0.1:9000?ns=demo-gostop-default-rtdb' } : CONFIG;
+    const a = app.getApps().length ? app.getApp() : app.initializeApp(conf);
+    const au = auth.getAuth(a);
+    if (emu && !au.emulatorConfig) auth.connectAuthEmulator(au, 'http://127.0.0.1:9099', { disableWarnings: true });
+    const cred = au.currentUser ? { user: au.currentUser } : await withTimeout(auth.signInAnonymously(au), 15000, 'auth');
+    const db = dbm.getDatabase(a);
+    if (emu) { try { dbm.connectDatabaseEmulator(db, '127.0.0.1', 9000); } catch (e) { /* 이미 연결 */ } }
+    let offset = 0;
+    dbm.onValue(dbm.ref(db, '.info/serverTimeOffset'), (s) => { offset = s.val() || 0; });
+    const r = (p) => dbm.ref(db, p);
+    return {
+      uid: cred.user.uid,
+      async get(p) { return (await withTimeout(dbm.get(r(p)), 15000, 'get')).val(); },
+      async set(p, v) { await withTimeout(dbm.set(r(p), v), 15000, 'set'); },
+      async update(p, v) { await withTimeout(dbm.update(r(p), v), 15000, 'update'); },
+      async tx(p, fn) { const res = await withTimeout(dbm.runTransaction(r(p), fn, { applyLocally: false }), 15000, 'tx'); return { committed: res.committed, value: res.snapshot.val() }; },
+      on(p, cb) { return dbm.onValue(r(p), (s) => cb(s.val())); },
+      onConnected(cb) { return dbm.onValue(r('.info/connected'), (s) => cb(!!s.val())); },
+      async onDisconnect(p, v) { await dbm.onDisconnect(r(p)).set(v); },
+      serverTime: dbm.serverTimestamp,
+      now: () => Date.now() + offset,
+    };
+  }
+
+  // ---------- 시험: 같은 브라우저 창끼리 (localStorage 한 칸에 나무 모양으로) ----------
+  function fakeDb() {
+    const KEY = 'gostop-famfake';
+    let uid = sessionStorage.getItem('famfake-uid');
+    if (!uid) { uid = 'u' + Math.random().toString(36).slice(2, 10); sessionStorage.setItem('famfake-uid', uid); }
+    const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } };
+    const save = (t) => localStorage.setItem(KEY, JSON.stringify(t));
+    const parts = (p) => p.split('/').filter(Boolean);
+    const getIn = (t, p) => parts(p).reduce((o, k) => (o == null ? null : o[k] === undefined ? null : o[k]), t);
+    const setIn = (t, p, v) => {
+      const ks = parts(p); let o = t;
+      for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null || typeof o[ks[i]] !== 'object') o[ks[i]] = {}; o = o[ks[i]]; }
+      if (v === null || v === undefined) delete o[ks[ks.length - 1]]; else o[ks[ks.length - 1]] = JSON.parse(JSON.stringify(v));
+    };
+    const subs = new Set();
+    const fire = () => { const t = load(); subs.forEach((s) => { const v = JSON.stringify(getIn(t, s.p)); if (v !== s.last) { s.last = v; s.cb(JSON.parse(v)); } }); };
+    addEventListener('storage', (e) => { if (e.key === KEY) fire(); });
+    const st = (v) => (v && v['.sv'] === 'timestamp' ? Date.now() : v);
+    const fixTs = (v) => (v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x && x['.sv'] ? Date.now() : fixTs(x)])) : st(v));
+    const discon = [];
+    addEventListener('pagehide', () => { const t = load(); discon.forEach(([p, v]) => setIn(t, p, fixTs(v))); save(t); });
+    return {
+      uid, fake: true,
+      async get(p) { return getIn(load(), p); },
+      async set(p, v) { const t = load(); setIn(t, p, fixTs(v)); save(t); fire(); },
+      async update(p, v) { const t = load(); for (const k of Object.keys(v)) setIn(t, p + '/' + k, fixTs(v[k])); save(t); fire(); },
+      async tx(p, fn) {
+        const t = load(); const cur = getIn(t, p); const nv = fn(cur == null ? null : JSON.parse(JSON.stringify(cur)));
+        if (nv === undefined) return { committed: false, value: cur };
+        setIn(t, p, fixTs(nv)); save(t); fire(); return { committed: true, value: nv };
+      },
+      on(p, cb) { const s = { p, cb, last: undefined }; subs.add(s); setTimeout(fire, 0); return () => subs.delete(s); },
+      onConnected(cb) { setTimeout(() => cb(true), 0); return () => {}; },
+      async onDisconnect(p, v) { discon.push([p, v]); },
+      serverTime: () => ({ '.sv': 'timestamp' }),
+      now: () => Date.now(),
+    };
+  }
+
+  // ---------- 가족 판 일 (db 위에서) ----------
+  function makeNet(db) {
+    const F = GS.family;
+    const connId = 'c' + Math.random().toString(36).slice(2, 10); // 이 창(연결) 하나의 이름 — 접속 표시는 연결마다 따로
+    const net = {
+      db, uid: db.uid, fake: !!db.fake, connId,
+      async myMember() { const l = await db.get('link/' + db.uid); return l && F.MEMBERS.includes(l.m) ? l.m : null; },
+      // 가입: 규칙이 code === /secret/code 를 확인 (가짜 통신은 여기서 흉내)
+      async join(code, m) {
+        if (!/^\d{4}$/.test(code) || !F.MEMBERS.includes(m)) return 'bad';
+        if (db.fake) { const sec = await db.get('secret/code'); if (sec !== code) return 'badcode'; }
+        try { await db.set('link/' + db.uid, { m, code }); } catch (e) { return 'badcode'; }
+        try { await db.set('owner/' + m, db.uid); } catch (e) { /* 표시용 */ }
+        return 'ok';
+      },
+      onNames(cb) { return db.on('names', (v) => cb({ ...F.DEFAULT_NAMES, ...(v || {}) })); },
+      // 접속 표시: 연결될 때마다 이 연결 칸을 on, 끊기면(서버가) off. 끈 뒤 늦게 끝난 등록이 다시 켜지 않게 active로 막음
+      goOnline(m) {
+        let active = true;
+        const path = 'online/' + m + '/' + connId;
+        const off = db.onConnected(async (c) => {
+          if (!c || !active) return;
+          await db.onDisconnect(path, { on: false, at: db.serverTime() });
+          if (!active) return;
+          await db.set(path, { on: true, at: db.serverTime() });
+        });
+        return async () => {
+          active = false;
+          try { off(); } catch (e) { /* 무시 */ }
+          try { await db.set(path, { on: false, at: db.serverTime() }); } catch (e) { /* 무시 */ }
+        };
+      },
+      onOnline(cb) { return db.on('online', (v) => cb(v || {})); },
+      onTable(cb) { return db.on('table', (v) => cb(v || null)); },
+      tableTx(fn) { return db.tx('table', fn); },
+      async getTable() { return db.get('table'); },
+      // 새 판: 시작값을 한 번만 쓰고, 방(room)이 같고 닫히지 않았고 '지금 판'이 prev일 때만 gid로 바꿈 + 최근 판 목록(hist, 10개)
+      async startGame(gid, start, prev, room) {
+        const w = await db.tx('games/' + gid + '/start', (cur) => (cur ? undefined : start));
+        if (!w.committed) return false;
+        const t = await db.tx('table', (cur) => {
+          if (cur === null) return undefined;
+          if (!cur.status || cur.status === 'closed' || cur.room !== room || (cur.current || null) !== (prev || null)) return undefined;
+          const hist = (Array.isArray(cur.hist) ? cur.hist : []).filter((x) => x !== gid).concat(gid).slice(-10);
+          return { ...cur, current: gid, status: 'play', hist };
+        });
+        return t.committed;
+      },
+      async getStart(gid) { return db.get('games/' + gid + '/start'); },
+      async getResult(gid) { return db.get('games/' + gid + '/result'); },
+      async getVoid(gid) { return !!(await db.get('games/' + gid + '/void')); },
+      // 행동: 칸마다 한 번만 쓰기(acts/i). 이미 누가 썼으면 실패 → 받아서 재생
+      onLog(gid, cb) { return db.on('games/' + gid + '/acts', (v) => cb(v || {})); },
+      async getActs(gid) { const v = (await db.get('games/' + gid + '/acts')) || {}; const out = []; for (let i = 0; v[i]; i++) { const { by, ...a } = v[i]; out.push(a); } return out; },
+      async append(gid, n, action, by) {
+        const res = await db.tx('games/' + gid + '/acts/' + n, (cur) => (cur ? undefined : { ...action, by }));
+        return res.committed;
+      },
+      onCtrl(gid, cb) { return db.on('games/' + gid + '/ctrl', (v) => cb(v || {})); },
+      setCtrl(gid, seat, v) { return db.set('games/' + gid + '/ctrl/' + seat, v); },
+      onVoid(gid, cb) { return db.on('games/' + gid + '/void', (v) => cb(!!v)); },
+      // 결과·무효는 둘 중 하나만(규칙). 이미 있으면 그 값을 돌려줌
+      async putResult(gid, result) { await db.tx('games/' + gid + '/result', (cur) => (cur ? undefined : result)).catch(() => {}); return db.get('games/' + gid + '/result'); },
+      async setVoid(gid) { try { await db.tx('games/' + gid + '/void', (cur) => (cur ? undefined : true)); } catch (e) { /* 결과가 먼저 확정됨 */ } },
+      async putWin(gid, m, day) { return (await db.tx('wins/' + gid, (cur) => (cur ? undefined : { m, day }))).committed; },
+      onWins(cb) { return db.on('wins', (v) => cb(v || {})); },
+      async getWin(gid) { return db.get('wins/' + gid); },
+      now: () => db.now(),
+    };
+    return net;
+  }
+
+  let cached = null;
+  async function connect() {
+    if (cached) return cached;
+    const useFake = GS.famFake || /[?&]famfake\b/.test(location.search);
+    const db = useFake ? fakeDb() : await firebaseDb();
+    cached = makeNet(db);
+    return cached;
+  }
+  GS.famnet = { connect, makeNet, fakeDb, CONFIG };
+})();
+
+// ===== src/famui.js =====
+// 가족 판 입구 화면(기능 9): 연결 → (처음이면) 비밀번호·이름 → 승수판 + 방 만들기·들어가기·시작
+// 판이 시작되면 GS.ui.startFamily로 넘긴다. 큰 글자·안내 한 줄·누를 단추 하나씩.
+(function () {
+  'use strict';
+  const FM = GS.family;
+  const $ = (s) => document.querySelector(s);
+  let H = null;        // { overlay, closeOverlay, won, A, cfg() }
+  let net = null, myM = null, names = { ...FM.DEFAULT_NAMES };
+  let table = null, online = {}, wins = {};
+  let unsub = [], stopOnline = null, open = false, entering = false;
+
+  const nm = (m) => (m === 'cpu' ? '컴퓨터' : names[m] || m);
+  const hon = (m) => { const x = nm(m); return /님$/.test(x) ? x : x + '님'; }; // 대표님 → 대표님 (님 안 겹치게)
+  const modeName = (m) => (m === 'matgo' ? '둘이 맞고' : '셋이서 고스톱');
+  const isOn = (m) => FM.memberOnline(online, m).on;
+  const newGid = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  function show(html) { const ov = H.overlay(`<div class="fam">${html}</div>`); return ov; }
+  function btn(id, fn) { const b = document.getElementById(id); if (b) b.onclick = fn; }
+
+  // ---------- 들어가기 ----------
+  async function openFamily() {
+    if (open) return;
+    open = true;
+    H.A.unlock();
+    show('<h2>가족 판</h2><p class="big1">가족 판에 연결하는 중이에요…</p><p class="note">인터넷이 연결되어 있어야 해요</p>');
+    try {
+      net = await GS.famnet.connect();
+      myM = await net.myMember();
+    } catch (e) {
+      console.warn('가족 판 연결', e);
+      show('<h2>가족 판</h2><p class="big1">연결이 안 돼요.<br>인터넷(와이파이·데이터)을 확인해 주세요.</p>' +
+        '<div class="row"><button class="big" id="fr">다시 해 보기</button><button class="plain" id="fx">돌아가기</button></div>');
+      btn('fr', () => { open = false; openFamily(); });
+      btn('fx', close);
+      return;
+    }
+    if (!myM) return askCode();
+    enterLobby();
+  }
+
+  // 처음 한 번: 가족 비밀번호(숫자 4자리) → 내 이름 고르기
+  function askCode(msg) {
+    let code = '';
+    const keys = [1, 2, 3, 4, 5, 6, 7, 8, 9, '지우기', 0, '확인'];
+    show(`<h2>가족 비밀번호</h2><p class="big1">${msg || '가족 비밀번호 숫자 4자리를 눌러 주세요'}</p>` +
+      '<div class="pin" id="pin">○○○○</div><div class="pad">' + keys.map((k) => `<button class="key" data-k="${k}">${k}</button>`).join('') + '</div>' +
+      '<div class="row"><button class="plain" id="fx">돌아가기</button></div>');
+    const pin = $('#pin');
+    document.querySelectorAll('.pad .key').forEach((b) => b.onclick = () => {
+      const k = b.dataset.k;
+      if (k === '지우기') code = code.slice(0, -1);
+      else if (k === '확인') { if (code.length === 4) return askName(code); }
+      else if (code.length < 4) code += k;
+      pin.textContent = '●'.repeat(code.length) + '○'.repeat(4 - code.length);
+      if (code.length === 4 && k !== '지우기') setTimeout(() => askName(code), 250);
+    });
+    btn('fx', close);
+  }
+  function askName(code) {
+    show('<h2>누구세요?</h2><p class="big1">내 이름을 눌러 주세요</p><div class="row names">' +
+      FM.MEMBERS.map((m) => `<button class="big" id="n_${m}">${nm(m)}</button>`).join('') + '</div>' +
+      '<div class="row"><button class="plain" id="fb">비밀번호 다시</button></div>');
+    for (const m of FM.MEMBERS) btn('n_' + m, async () => {
+      show('<h2>가족 판</h2><p class="big1">확인하는 중이에요…</p>');
+      let r = 'bad';
+      try { r = await net.join(code, m); } catch (e) { r = 'badcode'; }
+      if (r !== 'ok') return askCode('비밀번호가 달라요. 다시 눌러 주세요');
+      myM = m;
+      enterLobby();
+    });
+    btn('fb', () => askCode());
+  }
+
+  // ---------- 대기실 ----------
+  function enterLobby() {
+    unsub.push(net.onNames((v) => { names = v; GS.ui.famNames && GS.ui.famNames(v); if (open) draw(); })); // 가입 뒤라 읽기 권한 있음
+    stopOnline = net.goOnline(myM);
+    sweep().catch(() => {});
+    unsub.push(net.onTable((t) => {
+      const histChanged = JSON.stringify((t && t.hist) || []) !== JSON.stringify((table && table.hist) || []) || (t && table && t.current !== table.current);
+      table = t;
+      if (histChanged) sweep().catch(() => {}); // 판이 바뀔 때마다: 끝까지 못 본 판도 결과가 확정됐으면 정산
+      GS.ui.famTable && GS.ui.famTable(t);
+      if (open) { draw(); autoEnter(); }
+    }));
+    unsub.push(net.onOnline((o) => { online = o; GS.ui.famOnline && GS.ui.famOnline(o); if (open) draw(); }));
+    unsub.push(net.onWins((w) => { wins = w; if (open) draw(); GS.ui.famWins && GS.ui.famWins(w); }));
+    draw();
+  }
+  // extra: 방금 끝난 판(아직 원장에 안 올라왔으면 미리 더해서 보여 줌) { gid, m, day }
+  function tallyHtml(extra) {
+    const w = extra && extra.m && !wins[extra.gid] ? { ...wins, [extra.gid]: { m: extra.m, day: extra.day } } : wins;
+    const t = FM.tally(w, FM.kstDay(net.now()));
+    return '<table class="tally"><tr><th></th><th>오늘</th><th>지금까지</th></tr>' +
+      FM.MEMBERS.map((m) => `<tr><td>${isOn(m) ? '<span class="dot on">●</span>' : '<span class="dot">●</span>'} ${nm(m)}${m === myM ? ' (나)' : ''}</td><td><b>${t.day[m]}승</b></td><td>${t.all[m]}승</td></tr>`).join('') + '</table>';
+  }
+  function seatsOf(t) { return Object.entries((t && t.joined) || {}).sort((a, b) => a[1] - b[1]).map(([m]) => m); }
+  function draw() {
+    if (!open || !net || !myM || entering) return;
+    const t = table;
+    let body = '', foot = '';
+    if (!t || t.status === 'closed' || !t.status) {
+      body = '<p class="big1">지금 열린 방이 없어요. 방을 만들어 보세요</p>' +
+        '<div class="row"><button class="big" id="mk2">둘이 맞고<small>방 만들기</small></button><button class="big" id="mk3">셋이서<small>빈자리는 컴퓨터</small></button></div>';
+    } else if (t.status === 'lobby') {
+      const s = seatsOf(t), cap = t.mode === 'matgo' ? 2 : 3, inRoom = s.includes(myM), host = t.host === myM;
+      const humans = s.length;
+      body = `<p class="big1">${hon(t.host)}이 <b>${modeName(t.mode)}</b> 방을 만들었어요</p><div class="seats">` +
+        Array.from({ length: cap }, (_, i) => s[i] ? `<div class="seat">${isOn(s[i]) ? '<span class="dot on">●</span>' : '<span class="dot">●</span>'} ${nm(s[i])}</div>` : `<div class="seat empty">${t.mode === 'three' ? '빈자리(컴퓨터)' : '빈자리'}</div>`).join('') + '</div>';
+      if (!inRoom && humans < cap) foot = '<button class="big" id="jn">들어가기</button>';
+      else if (!inRoom) foot = '<p class="big1">방이 꽉 찼어요</p>';
+      else if (host) foot = humans >= 2 ? '<button class="big" id="go">시작</button>' : '<p class="big1">가족이 들어오면 [시작]을 누를 수 있어요</p>';
+      else foot = `<p class="big1">${hon(t.host)}이 [시작]을 누르면 시작돼요</p>`;
+      if (inRoom) foot += '<button class="plain" id="lv">방에서 나가기</button>';
+      if (host) foot += '<button class="plain danger" id="cl">방 닫기</button>';
+    } else if (t.status === 'play') {
+      body = `<p class="big1">가족이 <b>${modeName(t.mode)}</b>를 치고 있어요</p>`;
+      foot = '<button class="big" id="ct">이어서 하기</button><button class="plain danger" id="cl">방 닫기</button>';
+    }
+    show(`<h2>가족 판</h2><div class="scroll">${tallyHtml()}${body}</div><div class="row">${foot}</div>` +
+      `<div class="row"><button class="plain" id="fx">돌아가기</button></div>`);
+    btn('mk2', () => makeRoom('matgo'));
+    btn('mk3', () => makeRoom('three'));
+    btn('jn', joinRoom);
+    btn('go', startRoom);
+    btn('lv', leaveRoom);
+    btn('cl', closeRoom);
+    btn('ct', () => autoEnter(true));
+    btn('fx', close);
+  }
+  async function makeRoom(mode) {
+    await net.tableTx((cur) => (cur && cur.status && cur.status !== 'closed') ? undefined
+      : { status: 'lobby', room: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), host: myM, mode, joined: { [myM]: 1 }, current: (cur && cur.current) || null, hist: (cur && cur.hist) || [], at: Date.now() });
+  }
+  async function joinRoom() {
+    await net.tableTx((cur) => {
+      if (!cur || cur.status !== 'lobby') return undefined;
+      const j = cur.joined || {}, cap = cur.mode === 'matgo' ? 2 : 3;
+      if (j[myM] || Object.keys(j).length >= cap) return undefined;
+      return { ...cur, joined: { ...j, [myM]: Math.max(0, ...Object.values(j).map(Number)) + 1 } };
+    });
+  }
+  async function leaveRoom() {
+    await net.tableTx((cur) => {
+      if (!cur || cur.status !== 'lobby' || !cur.joined || !cur.joined[myM]) return undefined;
+      const j = { ...cur.joined }; delete j[myM];
+      if (cur.host === myM) return { ...cur, status: 'closed', joined: {} }; // 방장이 나가면 방 닫힘
+      return { ...cur, joined: j };
+    });
+  }
+  async function closeRoom() {
+    const ov = show('<h2>방 닫기</h2><p class="big1">방을 닫을까요?<br>치던 판은 없던 일이 돼요.</p><div class="row"><button class="big" id="y">닫기</button><button class="plain" id="n">아니요</button></div>');
+    btn('y', async () => { await net.tableTx((cur) => (cur ? { ...cur, status: 'closed', joined: {} } : undefined)); draw(); });
+    btn('n', draw);
+    return ov;
+  }
+  // 방장이 [시작]: 자리 순서 = 들어온 순서(셋이서면 빈자리는 컴퓨터), 판 시작값 고정
+  async function startRoom() {
+    const t = table; if (!t || t.status !== 'lobby' || t.host !== myM) return;
+    const seats = seatsOf(t);
+    if (t.mode === 'three') while (seats.length < 3) seats.push('cpu');
+    const cfg = H.cfg();
+    const start = { v: FM.PROTO, mode: t.mode, seed: (Math.random() * 2 ** 31) >>> 0, dealer: 0, nagariMult: 1,
+      sept: seats.map(() => cfg.september || 'pi'), point: FM.POINT, seats, diff: cfg.diff || 'normal', day: FM.kstDay(net.now()) };
+    if (!FM.validStart(start)) return;
+    await net.startGame(newGid(), start, t.current || null, t.room);
+  }
+  // 판이 시작됐고 내가 그 판 자리에 있으면 게임 화면으로
+  async function autoEnter(force) {
+    const t = table;
+    if (!open || entering || !t || t.status !== 'play' || !t.current) return;
+    entering = true;
+    const want = t.current;
+    let st = null;
+    try { st = await net.getStart(want); } finally { entering = false; }
+    if (!open) return; // 돌아가기
+    if (!table || table.current !== want || table.status !== 'play') { setTimeout(() => autoEnter(force), 0); return; } // 기다리는 사이 판이 바뀜 → 최신 판으로 다시
+    if (!st || !FM.validStart(st)) { if (force) show('<h2>가족 판</h2><p class="big1">이 판은 다른 버전 앱으로 시작됐어요.<br>앱을 새로 고친 뒤 다시 들어와 주세요.</p><div class="row"><button class="big" id="fx">돌아가기</button></div>'), btn('fx', close); return; }
+    if (!st.seats.includes(myM)) { if (force) draw(); return; }
+    open = false; // 대기실 창 닫음(구독은 게임 화면이 이어서 씀)
+    H.closeOverlay();
+    GS.ui.startFamily({ net, myM, names, gid: want, start: st, room: table.room, wins, online, onExit: backToLobby });
+  }
+  // 게임 화면에서 [그만하기] → 다시 대기실
+  function backToLobby() { open = true; draw(); sweep().catch(() => {}); }
+  function close() {
+    open = false;
+    unsub.forEach((f) => { try { f(); } catch (e) { /* 무시 */ } }); unsub = [];
+    if (stopOnline) { Promise.resolve(stopOnline()).catch(() => {}); stopOnline = null; }
+    H.closeOverlay();
+  }
+
+  // ---------- 정산 (서버에 확정된 결과 기준, 판마다 한 번) ----------
+  // 돌려줌: { applied, dup, money, ok }
+  function settle(gid, start, result, m) {
+    const me = start.seats.indexOf(m);
+    if (me < 0 || !result || !Array.isArray(result.deltas)) return null;
+    const mine = Number(result.deltas[me]) || 0;
+    const r = GS.storage.commit((d) => {
+      d.fam = FM.cleanFam(d.fam);
+      if (d.fam.paid.includes(gid)) return { applied: 0, dup: true };
+      const before = d.money;
+      d.money = Math.min(GS.storage.MAX_MONEY, Math.max(0, Math.floor(before + mine)));
+      d.fam = FM.addPaid(d.fam, gid);
+      return { applied: d.money - before, dup: false };
+    });
+    return { ...r.info, mine, money: r.data.money, ok: r.ok };
+  }
+  // 정산은 한 줄로 세워 하나씩(지난 판 → 지금 판 순서, 동시에 돌다 순서가 뒤집히지 않게)
+  let chain = Promise.resolve();
+  function queued(fn) { const p = chain.then(fn); chain = p.catch(() => {}); return p; }
+  // 결과가 아직 없는 판: 행동 기록을 재생해 끝난 판이면 결과를 확정(어느 폰이든 같은 계산), 어긋났으면 무효
+  async function ensureResult(gid, st) {
+    let res = await net.getResult(gid);
+    if (res || (await net.getVoid(gid))) return res || null;
+    const acts = await net.getActs(gid);
+    const r = FM.replay(st, acts);
+    if (r.bad >= 0) { await net.setVoid(gid); return net.getResult(gid); }
+    if (!r.state.ended) return null; // 아직 진행 중
+    const x = FM.settleReal(r.state, st);
+    return net.putResult(gid, { nagari: x.nagari, winner: x.nagari ? -1 : x.winner, deltas: x.deltas, nextDealer: x.nextDealer, nextNagariMult: x.nextNagariMult });
+  }
+  // 놓친 판 정산·빠진 승수 원장 채우기: 방의 최근 판 목록(hist) 순서대로. 실행 중이면 그 작업을 같이 기다림
+  let sweepP = null;
+  function sweep() {
+    if (!net || !myM) return Promise.resolve();
+    if (sweepP) return sweepP;
+    sweepP = queued(async () => {
+      const t = await net.getTable();
+      for (const gid of (t && Array.isArray(t.hist) ? t.hist : [])) {
+        const st = await net.getStart(gid);
+        if (!st || !FM.validStart(st)) continue;
+        let res = null;
+        try { res = await ensureResult(gid, st); } catch (e) { console.warn('결과 확정', gid, e); continue; }
+        if (!res) continue;
+        if (st.seats.includes(myM)) settle(gid, st, res, myM);
+        if (!res.nagari && st.seats[res.winner] && st.seats[res.winner] !== 'cpu' && !(await net.getWin(gid))) await net.putWin(gid, st.seats[res.winner], st.day).catch(() => {});
+      }
+    }).catch((e) => { console.warn('놓친 판 정산', e); }).finally(() => { sweepP = null; });
+    return sweepP;
+  }
+  // 지금 판 정산도 같은 줄에서 (먼저 도는 sweep이 끝난 뒤)
+  const settleQueued = (gid, start, result, m) => queued(() => settle(gid, start, result, m));
+
+  GS.famui = { settle, settleQueued, sweep, init: (h) => { H = h; }, open: openFamily, close, backToLobby, tallyHtml: (extra) => (net ? `<div class="fam">${tallyHtml(extra)}</div>` : ''), get names() { return names; }, get online() { return online; } };
+})();
+
 // ===== src/ui.js =====
 // 화면: 시작 화면, 게임판 그리기, 터치, 연출, 창, 정산 반영.
 // 규칙은 GS.rules / GS.score, 컴퓨터는 GS.ai, 저장은 GS.storage, 소리는 GS.audio 에 맡긴다.
@@ -2934,6 +3545,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
 
   // ---------- 진행 ----------
   async function act(action) {
+    if (fam) return famSend(action);
     if (busy) return;
     busy = true;
     lifted = null;
@@ -2968,6 +3580,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
 
   async function loop() {
     if (busy || paused || !state) return;
+    if (fam) return famLoop();
     const p = R.pending(state);
     render();
     if (!p) return finish();
@@ -3113,6 +3726,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       counts: { ...myCounts }, shakes: me.shakes || 0, bombs: me.bombs || 0, gave, won: Math.max(0, wonAmount) };
   }
   async function finish() {
+    if (fam) return famFinish();
     if (settledRound === round) return;
     settledRound = round;
     const r0 = round;
@@ -3194,8 +3808,347 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     once(ov.querySelector('#hm'), () => home());
   }
 
+
+  // ---------- 가족 판 (기능 9) ----------
+  // 진짜 판(fam.real, 자리 = start.seats 순서)과 내 화면(state = 내 자리를 0번으로 돌린 것)을 따로 둔다.
+  // 행동은 DB의 행동 칸(acts/i, 칸마다 한 번만)에 쓰고(내 차례·컴퓨터 자리만), 모든 폰이 같은 순서로 재생한다.
+  // fam.gen: 판이 바뀔 때마다 +1 — 기다리던 작업이 끝났을 때 다른 판이면 아무것도 건드리지 않는다.
+  // fam.ready: 새 판의 엔진·첫 기록을 다 받은 뒤에만 true (그 전엔 재생·보내기 금지)
+  const FM = GS.family;
+  const hon = (x) => (/님$/.test(x) ? x : x + '님');
+  let fam = null;
+  function famInfo(st, names, me) {
+    const n = st.seats.length;
+    const real = st.seats.map((m) => (m === 'cpu' ? '컴퓨터' : names[m] || m));
+    return { solo: false, family: true, oppId: null, names: real.map((_, v) => (v === 0 ? '나' : real[(v + me) % n])), diff: st.diff || 'normal', point: st.point || FM.POINT, faces: new Array(n).fill(null) };
+  }
+  const alive = (f, g) => fam === f && f.gen === g; // 이 세션·이 판이 아직 그대로인가
+  function startFamily(o) {
+    famLeave(false);
+    const f = fam = { net: o.net, myM: o.myM, names: o.names, room: o.room, wins: o.wins || {}, online: o.online || {}, onExit: o.onExit, unsub: [], gen: 0, req: 0 };
+    famUse(o.gid, o.start);
+    A.unlock();
+    mode = o.start.mode;
+    goLandscape().then(() => {
+      if (fam !== f) return;
+      $('#start').hidden = true;
+      $('#game').hidden = false;
+      $('#game').classList.add('family');
+      famRound();
+    });
+    f.timer = setInterval(famTick, 4000);
+  }
+  // 이 판(gid)의 시작값·구독으로 바꿈. 첫 기록(행동·무효)을 받을 때까지 ready=false
+  function famUse(gid, st) {
+    const f = fam;
+    f.unsub.forEach((u) => { try { u(); } catch (e) { /* 무시 */ } });
+    f.unsub = [];
+    f.gen++;
+    const g = f.gen;
+    f.gid = gid; f.start = st; f.me = st.seats.indexOf(f.myM);
+    f.log = []; f.ctrl = {}; f.voided = false; f.ready = false; f.real = null; f.applied = 0; f.cpuK = -1; f.settled = false;
+    info = famInfo(st, f.names, f.me);
+    let gotLog, gotVoid;
+    f.firstData = Promise.all([new Promise((r) => { gotLog = r; }), new Promise((r) => { gotVoid = r; })]);
+    f.unsub.push(f.net.onLog(gid, (acts) => {
+      if (!alive(f, g)) return;
+      const out = [];
+      for (let i = 0; acts[i]; i++) { const { by, ...a } = acts[i]; out.push(a); } // 0부터 연속된 칸만
+      f.log = out;
+      gotLog();
+      famPump();
+    }));
+    f.unsub.push(f.net.onVoid(gid, (v) => { if (!alive(f, g)) return; gotVoid(); if (v && f.ready) famVoid(); else if (v) f.voided = true; }));
+    f.unsub.push(f.net.onCtrl(gid, (c) => { if (!alive(f, g)) return; f.ctrl = c; f.cpuK = -1; if (f.ready && !busy) loop(); }));
+  }
+  // 방 상태가 바뀜(famui가 넘겨줌): 방 닫힘 / 새 판으로 옮기기 (지난 판은 먼저 정산 확인)
+  async function famTable(t) {
+    const f = fam;
+    if (!f) return;
+    if (!t || t.status === 'closed' || (t.room && f.room && t.room !== f.room)) { famLeave(true, '방이 닫혔어요'); return; }
+    if (t.current && t.current !== f.gid) {
+      const req = ++f.req, want = t.current;
+      if (GS.famui) await GS.famui.sweep().catch(() => {}); // 끝까지 못 본 지난 판도 결과가 확정됐으면 내 몫 정산
+      const st = await f.net.getStart(want).catch(() => null);
+      if (fam !== f || f.req !== req) return; // 그사이 더 새 판·나가기
+      if (!st || !FM.validStart(st) || !st.seats.includes(f.myM)) { famLeave(true, '새 판에 내 자리가 없어요'); return; }
+      famUse(want, st);
+      famRound();
+    }
+  }
+  function famOnline(o) { if (!fam) return; fam.online = o; if (fam.ready && !busy && state && !state.ended) loop(); } // 컴퓨터 담당이 바뀌었을 수 있음
+  function famWins(w) { if (fam) fam.wins = w; }
+  function famNames(v) { if (!fam) return; fam.names = v; info = famInfo(fam.start, v, fam.me); render(); }
+  const famOn = () => FM.onlineMap(fam.online, FM.MEMBERS);
+  // 새 판 화면: 첫 기록을 받은 뒤 — 무효면 안내, 이미 진행 중이면 연출 없이 따라잡고, 처음이면 패 돌리기 연출
+  async function famRound() {
+    const f = fam;
+    if (!f) return;
+    const g = f.gen;
+    await Promise.race([f.firstData, new Promise((r) => setTimeout(r, 6000))]);
+    if (!alive(f, g)) return;
+    round++;
+    A.stopAll(); A.bgmStart(); clearEffects(); closeOverlay(); hideWait();
+    cfg = ST.load();
+    busy = true; lifted = null; lastFlags = []; jackpot = false; settledRound = -1;
+    $('#board').classList.remove('jackpot');
+    f.real = FM.newGameOf(f.start); f.applied = 0;
+    state = FM.rotate(f.real, f.me);
+    fitNow();
+    f.ready = true;
+    if (f.voided) { busy = false; f.voided = false; return famVoid(); }
+    const r0 = round;
+    if (f.log.length) {
+      famCatchup();
+      busy = false; render();
+      if (f.applied < f.log.length) famPump(); else loop();
+      return;
+    }
+    setMsg('자, 시작해요!'); A.say('start');
+    sleepIn(r0, 900)
+      .then(() => playEvents(state.initialEvents || [], 0, r0))
+      .then(() => { if (r0 !== round || !alive(f, g)) return; busy = false; if (f.applied < f.log.length) famPump(); else loop(); })
+      .catch((e) => { if (e !== CANCEL) throw e; });
+  }
+  // 마지막 한 개만 남기고 연출 없이 재생 (다시 들어왔을 때)
+  function famCatchup() {
+    while (fam.applied < fam.log.length - 1) {
+      const a = fam.log[fam.applied];
+      if (!FM.legal(fam.real, a)) return famBad();
+      fam.real = R.apply(fam.real, a).state; fam.applied++;
+    }
+    state = FM.rotate(fam.real, fam.me);
+  }
+  // 받은 행동 중 아직 안 한 것을 하나씩 (연출)
+  function famPump() {
+    if (!fam || !fam.ready || busy || paused || !state || fam.voided) return;
+    if (fam.applied < fam.log.length) famApply(fam.log[fam.applied]);
+  }
+  async function famApply(a) {
+    const f = fam, g = f.gen;
+    busy = true; lifted = null; closeOverlay(); hideWait();
+    const r0 = round, n = f.start.seats.length;
+    if (!FM.legal(f.real, a)) { busy = false; return famBad(); }
+    const who = FM.rot(R.pending(f.real).player, f.me, n);
+    const out = R.apply(f.real, a);
+    f.real = out.state; f.applied++;
+    render();
+    try {
+      await playEvents(FM.rotateEvents(out.events, f.me, n), who, r0);
+      if (r0 !== round || !alive(f, g)) return;
+      state = FM.rotate(f.real, f.me);
+      render();
+      await announceSets(r0);
+    } catch (e) { if (e !== CANCEL) throw e; return; }
+    if (r0 !== round || !alive(f, g)) return;
+    busy = false;
+    render();
+    if (f.applied < f.log.length) return famPump();
+    loop();
+  }
+  // 내 행동 보내기 (화면에 바로 반영하지 않고, 행동 칸에 써진 뒤 모든 폰과 같이 재생)
+  async function famSend(action) {
+    const f = fam;
+    if (busy || !f || !f.ready || f.voided) return;
+    const p = R.pending(state);
+    if (!p || p.player !== 0 || FM.isCpuSeat(f.start, f.ctrl, f.me)) return;
+    const g = f.gen, k = f.applied;
+    busy = true; lifted = null; closeOverlay(); render();
+    let ok = false;
+    try { ok = await f.net.append(f.gid, k, action, f.myM); }
+    catch (e) { if (alive(f, g)) setMsg('인터넷이 잠깐 끊겼어요. 다시 눌러 주세요'); }
+    if (!alive(f, g)) return; // 그사이 판이 바뀜 — 새 판의 잠금은 건드리지 않음
+    busy = false;
+    if (f.applied < f.log.length) return famPump();
+    if (!ok) loop();
+  }
+  function famLoop() {
+    const f = fam;
+    if (!f.ready || f.voided) return;
+    const p = R.pending(state);
+    render();
+    if (!p) return finish();
+    const n = f.start.seats.length, seat = (p.player + f.me) % n;
+    hideWait();
+    if (FM.isCpuSeat(f.start, f.ctrl, seat)) {
+      setMsg(p.player === 0 ? '컴퓨터가 내 대신 치는 중이에요' : info.names[p.player] + ' 차례예요');
+      if (seat === f.me) showWait('<b>컴퓨터가 내 대신 치고 있어요</b>', '내가 칠게요', () => f.net.setCtrl(f.gid, f.me, null));
+      if (FM.cpuRunner(f.start, famOn()) === f.myM) famCpu(seat);
+      return;
+    }
+    if (p.player !== 0) { setMsg(info.names[p.player] + ' 차례예요'); famWaitCheck(); return; }
+    if (p.type === 'play') {
+      const me = state.players[0];
+      if (!me.hand.length && me.freeFlips > 0) return act({ type: 'flipOnly' });
+      render();
+    } else if (p.type === 'chooseFloor') askChoose(p);
+    else if (p.type === 'shake') askShake(p);
+    else if (p.type === 'goStop') askGoStop();
+    else if (p.type === 'chongtong') askChongtong(p);
+  }
+  // 컴퓨터 자리: 내가 맡은 폰이면 잠깐 뒤 계산해서 칸에 씀(다른 폰이 먼저 썼으면 실패 → 그냥 재생). 같은 칸은 한 번만 예약
+  function famCpu(seat) {
+    const f = fam, k = f.applied, g = f.gen;
+    if (f.cpuK === k) return;
+    f.cpuK = k;
+    setTimeout(async () => {
+      if (!alive(f, g) || f.applied !== k || busy || f.voided || !f.ready) { if (alive(f, g) && f.cpuK === k) f.cpuK = -1; return; }
+      // 기다리는 사이 대타가 풀렸거나 담당이 바뀌었으면 그만
+      const p = R.pending(f.real);
+      if (!p || p.player !== seat || !FM.isCpuSeat(f.start, f.ctrl, seat) || FM.cpuRunner(f.start, famOn()) !== f.myM) { f.cpuK = -1; return; }
+      let a = null;
+      try { a = GS.ai.choose(f.real, seat, f.start.diff || 'normal'); } catch (e) { a = null; }
+      if (!FM.legal(f.real, a)) a = R.legalActions(f.real)[0];
+      busy = true;
+      let ok = false;
+      try { ok = await f.net.append(f.gid, k, a, 'cpu'); } catch (e) { ok = false; }
+      if (!alive(f, g)) return;
+      busy = false;
+      if (!ok) f.cpuK = -1; // 실패: 다음 확인(famTick·접속 변화) 때 다시
+      famPump();
+    }, T().think);
+  }
+  // 차례인 가족이 1분 넘게 연결이 끊겼으면 [컴퓨터가 대신 치기]
+  function famWaitCheck() {
+    if (!fam || !state) return;
+    const p = R.pending(state); if (!p || p.player === 0) return;
+    const n = fam.start.seats.length, seat = (p.player + fam.me) % n, m = fam.start.seats[seat];
+    if (m === 'cpu' || FM.isCpuSeat(fam.start, fam.ctrl, seat)) return;
+    const o = FM.memberOnline(fam.online, m);
+    const offFor = o.on ? 0 : o.known ? fam.net.now() - o.at : 60001;
+    if (offFor > 60000) showWait(`<b>${hon(info.names[p.player])}</b> 연결이 끊겼어요`, '컴퓨터가 대신 치기', () => fam.net.setCtrl(fam.gid, seat, 'cpu'));
+    else if (!o.on) showWait(`<b>${hon(info.names[p.player])}</b>을 기다리는 중이에요 (${Math.max(1, Math.ceil((60000 - offFor) / 1000))}초 뒤 컴퓨터로 바꿀 수 있어요)`);
+  }
+  // 4초마다: 기다림 안내 갱신 + 멈춘 컴퓨터 차례 다시 확인
+  function famTick() {
+    if (!fam || !fam.ready || busy || !state || state.ended || fam.voided) return;
+    const p = R.pending(state);
+    if (!p) return;
+    const seat = (p.player + fam.me) % fam.start.seats.length;
+    if (FM.isCpuSeat(fam.start, fam.ctrl, seat)) { if (fam.cpuK !== fam.applied) loop(); }
+    else if (p.player !== 0) famWaitCheck();
+  }
+  function showWait(html, label, fn) {
+    const w = $('#famwait');
+    w.innerHTML = `<span>${html}</span>` + (label ? `<button class="big" id="fw">${label}</button>` : '');
+    w.hidden = false;
+    if (label) { const b = $('#fw'); b.onclick = () => { b.disabled = true; fn(); }; }
+  }
+  function hideWait() { const w = $('#famwait'); if (w) { w.hidden = true; w.innerHTML = ''; } }
+  // 행동 기록이 어긋남(합법 아님) → 무효 표시(결과가 먼저 확정됐으면 규칙이 막음 → 결과대로)
+  function famBad() {
+    if (!fam) return;
+    const f = fam, g = f.gen;
+    f.voided = true; busy = false; setMsg('판을 확인하는 중이에요…');
+    f.net.setVoid(f.gid).then(() => f.net.getVoid(f.gid)).then((v) => {
+      if (!alive(f, g)) return;
+      if (v) famVoid();
+      else famLeave(true, '판이 어긋나서 대기실로 돌아왔어요'); // 결과가 먼저 확정됨 → 대기실 정리(sweep)가 결과대로 정산
+    }).catch(() => { if (alive(f, g)) famLeave(true, '인터넷을 확인해 주세요'); });
+  }
+  function famVoid() {
+    if (!fam) return;
+    fam.voided = true; round++; busy = false; hideWait();
+    const ov = overlay('<h2>이 판은 무효예요</h2><p>폰끼리 판이 어긋나서 이 판은 없던 일이 됐어요.<br>(이 판 돈은 아무에게도 정산되지 않아요)</p>' +
+      '<div class="row"><button class="big" id="nx">새 판</button><button class="plain" id="hm">그만하기</button></div>');
+    famNextButton(ov, true);
+    once(ov.querySelector('#hm'), () => home());
+  }
+  // 판 끝: 결과를 서버에 확정(먼저 쓴 폰 것 = 모든 폰이 같은 계산) → 확정된 결과로 내 몫만 정산(영수증) → 승수 원장
+  async function famFinish() {
+    if (settledRound === round) return;
+    settledRound = round;
+    const f = fam, g = f.gen, r0 = round, gid = f.gid, st = f.start, n = st.seats.length;
+    A.bgmEnd(); hideWait();
+    const res = FM.settleReal(f.real, st);
+    setMsg('판 결과를 맞추는 중이에요…');
+    let result = null, voided = false;
+    try {
+      result = await f.net.putResult(gid, { nagari: res.nagari, winner: res.nagari ? -1 : res.winner, deltas: res.deltas, nextDealer: res.nextDealer, nextNagariMult: res.nextNagariMult });
+      if (!result) voided = await f.net.getVoid(gid);
+    } catch (e) { result = null; }
+    if (!alive(f, g) || r0 !== round) return;
+    if (voided) return famVoid();
+    let s = null;
+    if (result) {
+      s = await GS.famui.settleQueued(gid, st, result, f.myM);
+      if (!alive(f, g) || r0 !== round) return;
+      const wm = !result.nagari ? st.seats[result.winner] : null;
+      if (wm && wm !== 'cpu') f.net.putWin(gid, wm, st.day).catch(() => {}); // 실패해도 대기실 정리(sweep)가 다시 씀
+    }
+    if (s && !s.dup) sessionProfit += s.applied;
+    if (s) { saveOk = s.ok; cfg = ST.load(); if (!saveOk) cfg.money = s.money; }
+    render();
+    const names = info.names;
+    const got = !result ? '<div class="warn">인터넷이 끊겨 결과를 못 맞췄어요. 다시 들어오면 정산돼요</div>'
+      : s.dup ? '<div class="sub">이미 정산한 판이에요</div>'
+      : `<div class="tot">${s.applied >= 0 ? '내 돈 +' + won(s.applied) : '내 돈 −' + won(-s.applied)}원 → ${won(cfg.money)}원</div>` +
+        (s.mine < 0 && s.applied > s.mine ? `<div class="warn">낼 돈 ${won(-s.mine)}원 중 가진 만큼 ${won(-s.applied)}원만 냈어요</div>` : '');
+    const wm0 = result && !result.nagari ? st.seats[result.winner] : null;
+    const tally = GS.famui ? GS.famui.tallyHtml(wm0 && wm0 !== 'cpu' ? { gid, m: wm0, day: st.day } : null) : '';
+    const saveNote = saveOk ? '' : '<p class="warn">돈이 저장되지 않았어요. 이 화면을 끄면 돈이 사라질 수 있어요.</p>';
+    const btns = '<div class="row"><button class="big" id="nx">다음 판</button><button class="plain" id="hm">그만하기</button></div>';
+    let ov;
+    if (res.nagari) {
+      A.lose();
+      const fp = f.real.firstPpeok != null ? `<p>첫뻑: ${ga(names[FM.rot(f.real.firstPpeok, f.me, n)])} 한 사람당 ${won(f.real.goal * info.point)}원 받아요</p>` : '';
+      ov = overlay(`<h2>나가리</h2><div class="scroll"><p>아무도 못 났어요. 다음 판은 돈이 <b>${res.nextNagariMult}배</b>예요.</p><div class="lines">${got}</div>${tally}${fp}</div>${saveNote}${btns}`);
+    } else {
+      const sv = FM.rotateSettle(res.settle, f.me, n);
+      const end = state.ended || {};
+      const iWon = end.winner === 0;
+      if (iWon) { A.win(); A.trot('win', { speed: cfg.speed }); A.say('win', 350); } else { A.lose(); A.say('lose', 350); }
+      const lines = resultLines(end, sv);
+      const loserLines = sv.losers.map((l) => `<div>${names[l.player]} 몫: ${l.mults && l.mults.length ? l.mults.join(' · ') + ' → ' : ''}${won(l.original)}원${l.paidBy !== l.player ? ` (독박: ${ga(names[l.paidBy])} 대신 냄)` : ''}</div>`).join('');
+      const fpl = sv.firstPpeok ? `<div class="sub">첫뻑: ${ga(names[sv.firstPpeok.player])} 한 사람당 ${won(sv.firstPpeok.amountEach)}원 받음</div>` : '';
+      ov = overlay(`<h2>${iWon ? '이겼어요!' : names[end.winner] + ' 승리'}</h2>` +
+        `<div class="scroll"><div class="lines">${got}</div>${tally}<div class="lines">${lines.map((l) => `<div>${l}</div>`).join('')}${loserLines}${fpl}</div></div>${saveNote}${btns}`);
+    }
+    famNextButton(ov, false);
+    once(ov.querySelector('#hm'), () => home());
+  }
+  // [다음 판]: 누르면 잠깐 막고, 판이 바뀌면(famTable) 창이 닫힘. 실패하면 다시 누를 수 있게
+  function famNextButton(ov, afterVoid) {
+    const b = ov.querySelector('#nx');
+    if (!b) return;
+    b.onclick = async () => {
+      if (b.disabled) return;
+      b.disabled = true; const t0 = b.textContent; b.textContent = '준비 중…';
+      const ok = await famNext(afterVoid).catch(() => false);
+      if (!ok && b.isConnected) { b.disabled = false; b.textContent = t0; setMsg('다음 판을 못 만들었어요. 다시 눌러 주세요'); }
+    };
+  }
+  // 다음 판: 아무 폰이나 누르면 한 번만 만들어짐(같은 방·지금 판이 그대로일 때만). 이미 다른 폰이 만들었으면 그 판으로 옮겨 감
+  async function famNext(afterVoid) {
+    const f = fam;
+    if (!f) return false;
+    const st = f.start;
+    let dealerN = st.dealer, mult = 1;
+    if (!afterVoid && f.real && f.real.ended) { const res = FM.settleReal(f.real, st); dealerN = res.nextDealer; mult = res.nextNagariMult; }
+    const next = { ...st, seed: (Math.random() * 2 ** 31) >>> 0, dealer: dealerN, nagariMult: mult, day: FM.kstDay(f.net.now()) };
+    const gid = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const ok = await f.net.startGame(gid, next, f.gid, f.room);
+    if (ok) return true;
+    const t = await f.net.getTable().catch(() => null); // 다른 폰이 먼저 만들었으면 그걸로
+    if (t && t.current && t.current !== f.gid) { famTable(t); return true; }
+    return false;
+  }
+  // 가족 판에서 나가기 (toLobby: 가족 판 대기실로 돌아감)
+  function famLeave(toLobby, msg) {
+    if (!fam) return;
+    const f = fam;
+    fam = null;
+    f.gen++;
+    f.unsub.forEach((u) => { try { u(); } catch (e) { /* 무시 */ } });
+    clearInterval(f.timer);
+    hideWait();
+    $('#game').classList.remove('family');
+    if (toLobby) { home(); if (f.onExit) f.onExit(msg); }
+  }
+
   // ---------- 시작·끝 ----------
   function newRound() {
+    if (fam) return famRound();
     round++;
     A.stopAll();
     A.bgmStart(); // 배경음악 처음부터 (소리·배경음악 꺼짐이면 기다림)
@@ -3246,6 +4199,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     setTimeout(() => { if (round === r1 && !$('#game').hidden) newRound(); }, 200); // 그사이 그만하기면 시작 안 함
   }
   function home() {
+    if (fam) { const f = fam; famLeave(false); home(); if (f.onExit) f.onExit(); return; }
     round++;
     A.stopAll();
     A.bgmEnd();
@@ -3305,7 +4259,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       fitNow();
       setPause('hidden', false);
       if (pauseReasons.has('confirm')) return askHome(); // 그만할까요? 창이 떠 있었으면 다시 보여 줌
-      if (!busy) loop();
+      if (!busy) { if (fam) famPump(); loop(); }
     });
   });
 
@@ -3359,6 +4313,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   // ---------- 단추 연결 ----------
   $('#b-matgo').onclick = () => startGame('matgo');
   $('#b-three').onclick = () => startGame('three');
+  $('#b-family').onclick = () => GS.famui.open();
   $('#b-dojang').onclick = async () => { A.unlock(); const c = await F.chooseOpponent(ST.load().prog); if (c) startGame(c.mode, c.oppId); };
   $('#b-quest').onclick = () => F.showQuests(ST.load().prog);
   $('#b-dex').onclick = () => F.showDex(ST.load().prog);
@@ -3368,6 +4323,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   $('#b-rules').onclick = openRules;
   $('#b-refill').onclick = () => { const r = ST.refill(); saveOk = r.ok; refreshStart(); };
   F.init({ overlay, closeOverlay, won, A });
+  GS.famui.init({ overlay, closeOverlay, won, A, cfg: () => ST.load() });
   document.documentElement.style.setProperty('--bgroom', `url("${new URL(F.px('bg_room'), location.href).href}")`); // 시작 화면 한옥 방 배경
   $('#b-fit1').onclick = () => fitButton(false);
   $('#b-fit2').onclick = () => fitButton(true);
@@ -3400,7 +4356,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     get canUpdate() { return state === null && !busy && !starting && !$('#start').hidden && $('#game').hidden && $('#ov').hidden && $('#ov2').hidden; },
     get fitScale() { return fitScale; }, overflow: () => gameOverflow(),
     get info() { return info; }, get jackpot() { return jackpot; }, get myCounts() { return { ...myCounts }; },
-    startGame, home, act, loop, sortHand, fitNow,
+    startGame, home, act, loop, sortHand, fitNow, startFamily, famTable, famOnline, famWins, famNames, get fam() { return fam; },
   };
 })();
 
