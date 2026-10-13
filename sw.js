@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "f5deb20f147a";
+const VERSION = "95c397eabde2";
 const FILES = {
   ".nojekyll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "fonts/BlackHanSans.woff2": "022fad8d34afabcca74e26a8be5e5c3f167ebe368f9688bbd1b95666839690dc",
@@ -8,7 +8,7 @@ const FILES = {
   "icons/icon-192.png": "f05ba63c2710e0d319dbe8777802581a456fc3fb24db4c422bd64932f453acb9",
   "icons/icon-512.png": "c1c5795d98fea16ab4825d63beab2e31b85cafa35c55e75c67e7ca23ca7e9541",
   "icons/icon-maskable-512.png": "e2402c529cd055c0f0775aa8c3f979d4d30ec6948afa8ef8dc1a2d9a831f0a52",
-  "index.html": "7d97b08fd979a624f2e8a3332844ddacd4e36033b7dba50010ee9d92d065462b",
+  "index.html": "7665aa4a9530ff199b77dbc23e94e59fcf52f27cd7f9793de7e4e7061e782311",
   "manifest.webmanifest": "48b8f8411cd4466d2de322c255ddf0b3a108120e51c05a988d0b57ff1855f84f"
 };
 const CACHE_NAME = "gostop-" + VERSION;
