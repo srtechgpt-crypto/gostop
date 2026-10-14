@@ -260,6 +260,9 @@ img.px{image-rendering:pixelated;image-rendering:crisp-edges;display:inline-bloc
 /* ---------- 기능 9: 가족 판 ---------- */
 .big.family{background:linear-gradient(#7fd3ff,#3a8fd8);color:#08213a;box-shadow:0 5px 0 #1f5a8f}
 .big.family:active{box-shadow:0 2px 0 #1f5a8f}
+/* 가족 판 창: .fam 틀이 창 높이 안에서 줄고 가운데(.scroll)만 스크롤 — 낮은 화면에서 아래 단추가 잘리지 않게 */
+.dlg>.fam{display:flex;flex-direction:column;gap:inherit;min-height:0}
+.fam .scroll{flex:0 1 auto}
 .fam .big1{font-size:22px;font-weight:700;margin:4px 0;line-height:1.35}
 .fam .tally{margin:4px auto 8px;border-collapse:collapse;font-size:22px}
 .fam .tally th{font-size:17px;color:var(--ink-dim);padding:2px 14px}
@@ -281,7 +284,7 @@ img.px{image-rendering:pixelated;image-rendering:crisp-edges;display:inline-bloc
 #famwait .big{font-size:20px;min-height:48px;padding:6px 14px}
 #game.family #board::after{content:'가족 판';position:absolute;right:8px;bottom:4px;background:#3a8fd8;color:#fff;font-weight:900;font-size:15px;border-radius:10px;padding:1px 10px;pointer-events:none}
 #game.family #board{position:relative}
-@media (max-height:420px){.fam .pad{grid-template-columns:repeat(6,72px)}.fam .key{min-height:52px;font-size:24px}.fam .pin{font-size:34px}}
+@media (max-height:420px){.fam .tally{font-size:18px;margin:0 auto 4px}.fam .tally td{padding:1px 12px}.fam .tally th{font-size:15px;padding:0 12px}.fam .big1{font-size:19px;margin:2px 0}.fam .seats{margin:2px 0;gap:8px}.fam .seat{padding:3px 12px;font-size:19px;border-width:2px}.fam .pad{grid-template-columns:repeat(6,72px)}.fam .key{min-height:52px;font-size:24px}.fam .pin{font-size:34px}}
 </style>
 <style>:root{--display:"Black Han Sans",sans-serif;--body:system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}</style>
 
@@ -1222,9 +1225,45 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   function addPaid(fam, gameId) { const f = cleanFam(fam); if (!f.paid.includes(gameId)) f.paid.push(gameId); f.paid = f.paid.slice(-PAID_MAX); return f; }
 
   // 한국 날짜 (가족 모두 같은 날짜로 승수를 셈 — 폰 시간대와 상관없이)
+  // ---------- 방 표(table) 상태 바꾸기 규칙 (기능 9-2) — 트랜잭션 함수 안에서 그대로 씀 ----------
+  const CAP = { matgo: 2, three: 3 };
+  // 자리 순서 = 들어온 순서
+  function seatsOf(t) { return Object.entries((t && t.joined) || {}).sort((a, b) => a[1] - b[1]).map(([m]) => m); }
+  const canMatgo = (t) => seatsOf(t).length <= CAP.matgo;
+  // 대기실에서 방장이 모드 바꾸기. 못 바꾸면 undefined(트랜잭션 취소)
+  function withMode(cur, me, mode) {
+    if (!cur || cur.status !== 'lobby' || cur.host !== me || !CAP[mode] || cur.mode === mode) return undefined;
+    if (seatsOf(cur).length > CAP[mode]) return undefined;
+    return { ...cur, mode };
+  }
+  // 판이 끝난 결과창 → 대기실: 지금 판·방이 그대로일 때만. 누른 사람이 방장, 자리는 지난 판 사람(들어온 순서 = 지난 판 자리 순서)
+  function toLobbyTable(cur, room, gid, humans, me) {
+    if (!cur || cur.status !== 'play' || cur.room !== room || (cur.current || null) !== gid) return undefined;
+    if (!Array.isArray(humans) || !humans.includes(me) || humans.length > (CAP[cur.mode] || 0)) return undefined;
+    const joined = {};
+    humans.forEach((m, i) => { joined[m] = i + 1; });
+    return { ...cur, status: 'lobby', host: me, joined };
+  }
+  // 대기실 전환이 안 됐을 때 최신 방 표로 판단: lobby(다른 폰이 먼저 바꿈 = 정상) / moved(새 판 시작) / closed / fail
+  function afterLobbyTx(t, room, gid) {
+    if (!t || !t.status || t.status === 'closed' || t.room !== room) return 'closed';
+    if ((t.current || null) !== gid) return 'moved';
+    return t.status === 'lobby' ? 'lobby' : 'fail';
+  }
+  // 새 판을 걸 수 있는 방 표인지: 방·지금 판이 그대로 + want{status, mode, host, humans}가 화면에서 본 그대로
+  function tableOk(cur, room, prev, want) {
+    if (!cur || !cur.status || cur.status === 'closed' || cur.room !== room || (cur.current || null) !== (prev || null)) return false;
+    const w = want || {};
+    if (w.status && cur.status !== w.status) return false;
+    if (w.mode && cur.mode !== w.mode) return false;
+    if (w.host && cur.host !== w.host) return false;
+    if (w.humans && JSON.stringify(seatsOf(cur)) !== JSON.stringify(w.humans)) return false;
+    return true;
+  }
+
   function kstDay(ms) { const d = new Date(ms + 9 * 3600 * 1000); return d.toISOString().slice(0, 10); }
 
-  GS.family = { PROTO, MEMBERS, DEFAULT_NAMES, POINT, rot, rotate, rotateEvents, rotateSettle, validStart, newGameOf, legal, replay, settleReal, tally, cpuRunner, memberOnline, onlineMap, isCpuSeat, cleanFam, addPaid, kstDay, same };
+  GS.family = { seatsOf, canMatgo, withMode, toLobbyTable, afterLobbyTx, tableOk, PROTO, MEMBERS, DEFAULT_NAMES, POINT, rot, rotate, rotateEvents, rotateSettle, validStart, newGameOf, legal, replay, settleReal, tally, cpuRunner, memberOnline, onlineMap, isCpuSeat, cleanFam, addPaid, kstDay, same };
   if (typeof module !== 'undefined' && module.exports) module.exports = GS.family;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
@@ -2504,12 +2543,13 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       tableTx(fn) { return db.tx('table', fn); },
       async getTable() { return db.get('table'); },
       // 새 판: 시작값을 한 번만 쓰고, 방(room)이 같고 닫히지 않았고 '지금 판'이 prev일 때만 gid로 바꿈 + 최근 판 목록(hist, 10개)
-      async startGame(gid, start, prev, room) {
+      // want: 화면에서 본 방 표 조건(GS.family.tableOk) — 다음 판은 {status:'play'}, 방장 시작은 대기실 모양 그대로일 때만
+      async startGame(gid, start, prev, room, want) {
         const w = await db.tx('games/' + gid + '/start', (cur) => (cur ? undefined : start));
         if (!w.committed) return false;
         const t = await db.tx('table', (cur) => {
           if (cur === null) return undefined;
-          if (!cur.status || cur.status === 'closed' || cur.room !== room || (cur.current || null) !== (prev || null)) return undefined;
+          if (!GS.family.tableOk(cur, room, prev, want)) return undefined;
           const hist = (Array.isArray(cur.hist) ? cur.hist : []).filter((x) => x !== gid).concat(gid).slice(-10);
           return { ...cur, current: gid, status: 'play', hist };
         });
@@ -2648,7 +2688,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     return '<table class="tally"><tr><th></th><th>오늘</th><th>지금까지</th></tr>' +
       FM.MEMBERS.map((m) => `<tr><td>${isOn(m) ? '<span class="dot on">●</span>' : '<span class="dot">●</span>'} ${nm(m)}${m === myM ? ' (나)' : ''}</td><td><b>${t.day[m]}승</b></td><td>${t.all[m]}승</td></tr>`).join('') + '</table>';
   }
-  function seatsOf(t) { return Object.entries((t && t.joined) || {}).sort((a, b) => a[1] - b[1]).map(([m]) => m); }
+  const seatsOf = FM.seatsOf;
   function draw() {
     if (!open || !net || !myM || entering) return;
     const t = table;
@@ -2660,12 +2700,17 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       const s = seatsOf(t), cap = t.mode === 'matgo' ? 2 : 3, inRoom = s.includes(myM), host = t.host === myM;
       const humans = s.length;
       body = `<p class="big1">${hon(t.host)}이 <b>${modeName(t.mode)}</b> 방을 만들었어요</p><div class="seats">` +
-        Array.from({ length: cap }, (_, i) => s[i] ? `<div class="seat">${isOn(s[i]) ? '<span class="dot on">●</span>' : '<span class="dot">●</span>'} ${nm(s[i])}</div>` : `<div class="seat empty">${t.mode === 'three' ? '빈자리(컴퓨터)' : '빈자리'}</div>`).join('') + '</div>';
+        Array.from({ length: cap }, (_, i) => s[i] ? `<div class="seat">${isOn(s[i]) ? '<span class="dot on">●</span>' : '<span class="dot">●</span>'} ${nm(s[i])}${i === 0 ? ' <small>(선)</small>' : ''}</div>` : `<div class="seat empty">${t.mode === 'three' ? '빈자리(컴퓨터)' : '빈자리'}</div>`).join('') + '</div>';
+      if (host) body += t.mode === 'matgo' ? '<div class="row"><button class="plain" id="sm3">셋이서로 바꾸기</button></div>'
+        : FM.canMatgo(t) ? '<div class="row"><button class="plain" id="sm2">둘이 맞고로 바꾸기</button></div>'
+        : '';
+      const full3 = host && t.mode === 'three' && !FM.canMatgo(t); // 안내는 단추 줄 위(스크롤 밖)에 — 낮은 화면에서도 보이게
       if (!inRoom && humans < cap) foot = '<button class="big" id="jn">들어가기</button>';
       else if (!inRoom) foot = '<p class="big1">방이 꽉 찼어요</p>';
       else if (host) foot = humans >= 2 ? '<button class="big" id="go">시작</button>' : '<p class="big1">가족이 들어오면 [시작]을 누를 수 있어요</p>';
       else foot = `<p class="big1">${hon(t.host)}이 [시작]을 누르면 시작돼요</p>`;
       if (inRoom) foot += '<button class="plain" id="lv">방에서 나가기</button>';
+      if (full3) foot = '<p class="note" style="flex-basis:100%;margin:0">셋이라 둘이 맞고로 못 바꿔요 (한 분이 [방에서 나가기] 하면 돼요)</p>' + foot;
       if (host) foot += '<button class="plain danger" id="cl">방 닫기</button>';
     } else if (t.status === 'play') {
       body = `<p class="big1">가족이 <b>${modeName(t.mode)}</b>를 치고 있어요</p>`;
@@ -2675,6 +2720,8 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       `<div class="row"><button class="plain" id="fx">돌아가기</button></div>`);
     btn('mk2', () => makeRoom('matgo'));
     btn('mk3', () => makeRoom('three'));
+    btn('sm2', () => setMode('matgo'));
+    btn('sm3', () => setMode('three'));
     btn('jn', joinRoom);
     btn('go', startRoom);
     btn('lv', leaveRoom);
@@ -2685,6 +2732,18 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   async function makeRoom(mode) {
     await net.tableTx((cur) => (cur && cur.status && cur.status !== 'closed') ? undefined
       : { status: 'lobby', room: 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), host: myM, mode, joined: { [myM]: 1 }, current: (cur && cur.current) || null, hist: (cur && cur.hist) || [], at: Date.now() });
+  }
+  // 대기실에서 방장이 둘이↔셋이 바꾸기
+  async function setMode(mode) { await net.tableTx((cur) => FM.withMode(cur, myM, mode)); }
+  // 판이 끝난 결과창의 [방 설정 바꾸기]: 같은 사람 그대로 대기실로(누른 사람이 방장).
+  // 돌려줌: { r: lobby / moved / closed / fail, t: 판단에 쓴 최신 방 표 } — 방 표를 못 읽으면(인터넷) fail(닫힘으로 보지 않음)
+  async function toLobby(room, gid, humans) {
+    if (!net || !myM) return { r: 'fail', t: null };
+    const x = await net.tableTx((cur) => FM.toLobbyTable(cur, room, gid, humans, myM));
+    if (x && x.committed) return { r: 'lobby', t: null };
+    let t;
+    try { t = await net.getTable(); } catch (e) { return { r: 'fail', t: null }; }
+    return { r: FM.afterLobbyTx(t, room, gid), t };
   }
   async function joinRoom() {
     await net.tableTx((cur) => {
@@ -2717,7 +2776,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const start = { v: FM.PROTO, mode: t.mode, seed: (Math.random() * 2 ** 31) >>> 0, dealer: 0, nagariMult: 1,
       sept: seats.map(() => cfg.september || 'pi'), point: FM.POINT, seats, diff: cfg.diff || 'normal', day: FM.kstDay(net.now()) };
     if (!FM.validStart(start)) return;
-    await net.startGame(newGid(), start, t.current || null, t.room);
+    await net.startGame(newGid(), start, t.current || null, t.room, { status: 'lobby', mode: t.mode, host: myM, humans: seatsOf(t) });
   }
   // 판이 시작됐고 내가 그 판 자리에 있으면 게임 화면으로
   async function autoEnter(force) {
@@ -2796,7 +2855,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
   // 지금 판 정산도 같은 줄에서 (먼저 도는 sweep이 끝난 뒤)
   const settleQueued = (gid, start, result, m) => queued(() => settle(gid, start, result, m));
 
-  GS.famui = { settle, settleQueued, sweep, init: (h) => { H = h; }, open: openFamily, close, backToLobby, tallyHtml: (extra) => (net ? `<div class="fam">${tallyHtml(extra)}</div>` : ''), get names() { return names; }, get online() { return online; } };
+  GS.famui = { settle, settleQueued, sweep, toLobby, init: (h) => { H = h; }, open: openFamily, close, backToLobby, tallyHtml: (extra) => (net ? `<div class="fam">${tallyHtml(extra)}</div>` : ''), get names() { return names; }, get online() { return online; } };
 })();
 
 // ===== src/ui.js =====
@@ -3866,6 +3925,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const f = fam;
     if (!f) return;
     if (!t || t.status === 'closed' || (t.room && f.room && t.room !== f.room)) { famLeave(true, '방이 닫혔어요'); return; }
+    if (t.status === 'lobby') { famLeave(true, '방 설정을 바꾸고 있어요'); return; } // 누군가 [방 설정 바꾸기] → 모두 대기실로(대기실이 지난 판 정산)
     if (t.current && t.current !== f.gid) {
       const req = ++f.req, want = t.current;
       if (GS.famui) await GS.famui.sweep().catch(() => {}); // 끝까지 못 본 지난 판도 결과가 확정됐으면 내 몫 정산
@@ -4050,8 +4110,9 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     if (!fam) return;
     fam.voided = true; round++; busy = false; hideWait();
     const ov = overlay('<h2>이 판은 무효예요</h2><p>폰끼리 판이 어긋나서 이 판은 없던 일이 됐어요.<br>(이 판 돈은 아무에게도 정산되지 않아요)</p>' +
-      '<div class="row"><button class="big" id="nx">새 판</button><button class="plain" id="hm">그만하기</button></div>');
+      '<div class="row"><button class="big" id="nx">새 판</button><button class="plain" id="rm">방 설정 바꾸기</button><button class="plain" id="hm">그만하기</button></div>');
     famNextButton(ov, true);
+    famRoomButton(ov);
     once(ov.querySelector('#hm'), () => home());
   }
   // 판 끝: 결과를 서버에 확정(먼저 쓴 폰 것 = 모든 폰이 같은 계산) → 확정된 결과로 내 몫만 정산(영수증) → 승수 원장
@@ -4087,12 +4148,12 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     const wm0 = result && !result.nagari ? st.seats[result.winner] : null;
     const tally = GS.famui ? GS.famui.tallyHtml(wm0 && wm0 !== 'cpu' ? { gid, m: wm0, day: st.day } : null) : '';
     const saveNote = saveOk ? '' : '<p class="warn">돈이 저장되지 않았어요. 이 화면을 끄면 돈이 사라질 수 있어요.</p>';
-    const btns = '<div class="row"><button class="big" id="nx">다음 판</button><button class="plain" id="hm">그만하기</button></div>';
+    const btns = '<div class="row"><button class="big" id="nx">다음 판</button><button class="plain" id="rm">방 설정 바꾸기</button><button class="plain" id="hm">그만하기</button></div>';
     let ov;
     if (res.nagari) {
       A.lose();
       const fp = f.real.firstPpeok != null ? `<p>첫뻑: ${ga(names[FM.rot(f.real.firstPpeok, f.me, n)])} 한 사람당 ${won(f.real.goal * info.point)}원 받아요</p>` : '';
-      ov = overlay(`<h2>나가리</h2><div class="scroll"><p>아무도 못 났어요. 다음 판은 돈이 <b>${res.nextNagariMult}배</b>예요.</p><div class="lines">${got}</div>${tally}${fp}</div>${saveNote}${btns}`);
+      ov = overlay(`<h2>나가리</h2><div class="scroll"><p>아무도 못 났어요. 다음 판은 돈이 <b>${res.nextNagariMult}배</b>예요.</p><p class="sub">[방 설정 바꾸기]를 하면 다음 판은 1배부터예요</p><div class="lines">${got}</div>${tally}${fp}</div>${saveNote}${btns}`);
     } else {
       const sv = FM.rotateSettle(res.settle, f.me, n);
       const end = state.ended || {};
@@ -4105,6 +4166,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
         `<div class="scroll"><div class="lines">${got}</div>${tally}<div class="lines">${lines.map((l) => `<div>${l}</div>`).join('')}${loserLines}${fpl}</div></div>${saveNote}${btns}`);
     }
     famNextButton(ov, false);
+    famRoomButton(ov);
     once(ov.querySelector('#hm'), () => home());
   }
   // [다음 판]: 누르면 잠깐 막고, 판이 바뀌면(famTable) 창이 닫힘. 실패하면 다시 누를 수 있게
@@ -4118,6 +4180,21 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
       if (!ok && b.isConnected) { b.disabled = false; b.textContent = t0; setMsg('다음 판을 못 만들었어요. 다시 눌러 주세요'); }
     };
   }
+  // [방 설정 바꾸기]: 판이 끝난 뒤에만(결과창·무효 창) — 같은 사람 그대로 대기실로, 누른 사람이 방장
+  function famRoomButton(ov) {
+    const b = ov.querySelector('#rm');
+    if (!b) return;
+    b.onclick = async () => {
+      const f = fam;
+      if (b.disabled || !f || !GS.famui || !(f.voided || (f.real && f.real.ended))) return;
+      b.disabled = true; const t0 = b.textContent; b.textContent = '바꾸는 중…';
+      const { r, t } = await GS.famui.toLobby(f.room, f.gid, f.start.seats.filter((m) => m !== 'cpu')).catch(() => ({ r: 'fail', t: null }));
+      if (fam !== f) return; // 그사이 방 표 변화로 이미 나감
+      if (r === 'lobby' || r === 'closed') { famLeave(true, r === 'closed' ? '방이 닫혔어요' : ''); return; }
+      if (r === 'moved' && t) { famTable(t); return; } // 다른 폰이 먼저 다음 판 → 그 판으로
+      if (b.isConnected) { b.disabled = false; b.textContent = t0; setMsg('방 설정 바꾸기를 못 했어요. 다시 눌러 주세요'); }
+    };
+  }
   // 다음 판: 아무 폰이나 누르면 한 번만 만들어짐(같은 방·지금 판이 그대로일 때만). 이미 다른 폰이 만들었으면 그 판으로 옮겨 감
   async function famNext(afterVoid) {
     const f = fam;
@@ -4127,7 +4204,7 @@ var GS = window.GS || {}; GS.voiceData = {"bright": {"bomb": "data:audio/mpeg;ba
     if (!afterVoid && f.real && f.real.ended) { const res = FM.settleReal(f.real, st); dealerN = res.nextDealer; mult = res.nextNagariMult; }
     const next = { ...st, seed: (Math.random() * 2 ** 31) >>> 0, dealer: dealerN, nagariMult: mult, day: FM.kstDay(f.net.now()) };
     const gid = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const ok = await f.net.startGame(gid, next, f.gid, f.room);
+    const ok = await f.net.startGame(gid, next, f.gid, f.room, { status: 'play' }); // 그사이 대기실로 바뀌었으면 거절
     if (ok) return true;
     const t = await f.net.getTable().catch(() => null); // 다른 폰이 먼저 만들었으면 그걸로
     if (t && t.current && t.current !== f.gid) { famTable(t); return true; }
